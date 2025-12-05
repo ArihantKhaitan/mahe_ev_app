@@ -405,15 +405,13 @@ class _LoginScreenState extends State<LoginScreen> {
           padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
-              // Logo Section
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: primaryColor.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.bolt_rounded, size: 64, color: primaryColor),
+              // --- UPDATED LOGO SECTION ---
+              Image.asset(
+                'assets/app_icon.png',
+                height: 150, // You can change this number to make it bigger/smaller
               ),
+              // ----------------------------
+
               const SizedBox(height: 24),
               Text(
                 'MAHE EV Charging',
@@ -423,6 +421,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   color: primaryColor,
                 ),
               ),
+// ... rest of your code ...
               Text(
                 'Campus Charging Solution',
                 style: TextStyle(
