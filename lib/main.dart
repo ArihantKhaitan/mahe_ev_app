@@ -2637,7 +2637,7 @@ class TransactionHistoryScreen extends StatelessWidget {
   }
 }
 
-// 3. BANK DETAILS SCREEN (Fully Editable & Dynamic)
+// 3. BANK DETAILS SCREEN (Multi-Account + View Details)
 class BankDetailsScreen extends StatefulWidget {
   const BankDetailsScreen({super.key});
 
@@ -2728,7 +2728,6 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
   void _setPrimary(String id) {
     setState(() {
       _primaryAccountId = id;
-      // If this was secondary, remove secondary status (can't be both)
       if (_secondaryAccountId == id) _secondaryAccountId = null;
     });
   }
@@ -2736,9 +2735,40 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
   void _setSecondary(String id) {
     setState(() {
       _secondaryAccountId = id;
-      // If this was primary, remove primary status
       if (_primaryAccountId == id) _primaryAccountId = null;
     });
+  }
+
+  // --- NEW: VIEW DETAILS DIALOG ---
+  void _viewAccountDetails(BankAccount acc) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(acc.bankName),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Account Number:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(acc.accountNumber, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            const Text("Account Holder:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(acc.holderName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            const Text("Status:", style: TextStyle(color: Colors.grey, fontSize: 12)),
+            if (_primaryAccountId == acc.id)
+              const Text("Primary Account (Active)", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
+            else if (_secondaryAccountId == acc.id)
+              const Text("Secondary Account (Backup)", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold))
+            else
+              const Text("Linked", style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Close")),
+        ],
+      ),
+    );
   }
 
   @override
@@ -2779,86 +2809,90 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
           final isPrimary = _primaryAccountId == acc.id;
           final isSecondary = _secondaryAccountId == acc.id;
 
-          return Container(
-            decoration: BoxDecoration(
-              color: cardColor,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
-              border: isPrimary ? Border.all(color: Colors.green, width: 2) :
-              isSecondary ? Border.all(color: Colors.orange, width: 2) : null,
-            ),
-            child: Column(
-              children: [
-                // Bank Card Visual
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                        colors: isPrimary
-                            ? [const Color(0xFF00796B), const Color(0xFF004D40)]
-                            : (isDark ? [Colors.grey.shade800, Colors.black] : [Colors.blueGrey, Colors.grey]),
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight
+          return InkWell(
+            onTap: () => _viewAccountDetails(acc), // Make card clickable
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
+                border: isPrimary ? Border.all(color: Colors.green, width: 2) :
+                isSecondary ? Border.all(color: Colors.orange, width: 2) : null,
+              ),
+              child: Column(
+                children: [
+                  // Bank Card Visual
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                          colors: isPrimary
+                              ? [const Color(0xFF00796B), const Color(0xFF004D40)]
+                              : (isDark ? [Colors.grey.shade800, Colors.black] : [Colors.blueGrey, Colors.grey]),
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight
+                      ),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                     ),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(acc.bankName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            const Icon(Icons.contactless, color: Colors.white70),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Text(acc.accountNumber, style: const TextStyle(color: Colors.white, fontSize: 18, letterSpacing: 2)),
+                        const SizedBox(height: 10),
+                        Text(acc.holderName, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                      ],
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(acc.bankName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          const Icon(Icons.contactless, color: Colors.white70),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Text(acc.accountNumber, style: const TextStyle(color: Colors.white, fontSize: 18, letterSpacing: 2)),
-                      const SizedBox(height: 10),
-                      Text(acc.holderName, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                    ],
-                  ),
-                ),
 
-                // Controls
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: RadioListTile<String>(
-                              title: Text("Primary (Receive)", style: TextStyle(fontSize: 12, color: textColor)),
-                              value: acc.id,
-                              groupValue: _primaryAccountId,
-                              activeColor: Colors.green,
-                              onChanged: (val) => _setPrimary(val!),
-                              contentPadding: EdgeInsets.zero,
+                  // Controls
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: Text("Primary (Receive)", style: TextStyle(fontSize: 12, color: textColor)),
+                                value: acc.id,
+                                groupValue: _primaryAccountId,
+                                activeColor: Colors.green,
+                                onChanged: (val) => _setPrimary(val!),
+                                contentPadding: EdgeInsets.zero,
+                              ),
                             ),
-                          ),
-                          Expanded(
-                            child: RadioListTile<String>(
-                              title: Text("Secondary (Backup)", style: TextStyle(fontSize: 12, color: textColor)),
-                              value: acc.id,
-                              groupValue: _secondaryAccountId,
-                              activeColor: Colors.orange,
-                              onChanged: (val) => _setSecondary(val!),
-                              contentPadding: EdgeInsets.zero,
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: Text("Secondary (Backup)", style: TextStyle(fontSize: 12, color: textColor)),
+                                value: acc.id,
+                                groupValue: _secondaryAccountId,
+                                activeColor: Colors.orange,
+                                onChanged: (val) => _setSecondary(val!),
+                                contentPadding: EdgeInsets.zero,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 1),
-                      TextButton.icon(
-                        onPressed: () => _deleteAccount(acc.id),
-                        icon: const Icon(Icons.delete, color: Colors.red, size: 18),
-                        label: const Text("Unlink Account", style: TextStyle(color: Colors.red)),
-                      )
-                    ],
+                          ],
+                        ),
+                        const Divider(height: 1),
+                        TextButton.icon(
+                          onPressed: () => _deleteAccount(acc.id),
+                          icon: const Icon(Icons.delete, color: Colors.red, size: 18),
+                          label: const Text("Unlink Account", style: TextStyle(color: Colors.red)),
+                        )
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           );
         },
