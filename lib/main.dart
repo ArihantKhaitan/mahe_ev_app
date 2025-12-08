@@ -2660,8 +2660,7 @@ class TransactionHistoryScreen extends StatelessWidget {
     );
   }
 }
-
-// 3. BANK DETAILS SCREEN (Multi-Account + View Details)
+// 3. BANK DETAILS SCREEN (Adaptive: Dark for Admin, Light for User)
 class BankDetailsScreen extends StatefulWidget {
   const BankDetailsScreen({super.key});
 
@@ -2704,23 +2703,44 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
     _accController.clear();
     _holderController.clear();
 
+    // Check theme for Dialog
+    final isDark = currentUser.isAdmin || Theme.of(context).brightness == Brightness.dark;
+    final dialogBg = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black;
+    final inputStyle = TextStyle(color: textColor);
+    final hintStyle = TextStyle(color: isDark ? Colors.grey : Colors.black54);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Add Bank Account"),
+        backgroundColor: dialogBg,
+        title: Text("Add Bank Account", style: TextStyle(color: textColor)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: _bankController, decoration: const InputDecoration(labelText: "Bank Name", border: OutlineInputBorder())),
+            TextField(
+                controller: _bankController,
+                style: inputStyle,
+                decoration: InputDecoration(labelText: "Bank Name", labelStyle: hintStyle, enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.grey : Colors.black45)), focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00796B))))
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _accController, decoration: const InputDecoration(labelText: "Account Number", border: OutlineInputBorder())),
+            TextField(
+                controller: _accController,
+                style: inputStyle,
+                decoration: InputDecoration(labelText: "Account Number", labelStyle: hintStyle, enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.grey : Colors.black45)), focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00796B))))
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _holderController, decoration: const InputDecoration(labelText: "Holder Name", border: OutlineInputBorder())),
+            TextField(
+                controller: _holderController,
+                style: inputStyle,
+                decoration: InputDecoration(labelText: "Holder Name", labelStyle: hintStyle, enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.grey : Colors.black45)), focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00796B))))
+            ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00796B), foregroundColor: Colors.white),
             onPressed: () {
               if (_bankController.text.isNotEmpty) {
                 setState(() {
@@ -2763,21 +2783,26 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
     });
   }
 
-  // --- NEW: VIEW DETAILS DIALOG ---
+  // View Details Dialog
   void _viewAccountDetails(BankAccount acc) {
+    final isDark = currentUser.isAdmin || Theme.of(context).brightness == Brightness.dark;
+    final dialogBg = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(acc.bankName),
+        backgroundColor: dialogBg,
+        title: Text(acc.bankName, style: TextStyle(color: textColor)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text("Account Number:", style: TextStyle(color: Colors.grey, fontSize: 12)),
-            Text(acc.accountNumber, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(acc.accountNumber, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
             const SizedBox(height: 16),
             const Text("Account Holder:", style: TextStyle(color: Colors.grey, fontSize: 12)),
-            Text(acc.holderName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(acc.holderName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor)),
             const SizedBox(height: 16),
             const Text("Status:", style: TextStyle(color: Colors.grey, fontSize: 12)),
             if (_primaryAccountId == acc.id)
@@ -2785,7 +2810,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
             else if (_secondaryAccountId == acc.id)
               const Text("Secondary Account (Backup)", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold))
             else
-              const Text("Linked", style: TextStyle(fontWeight: FontWeight.bold)),
+              Text("Linked", style: TextStyle(fontWeight: FontWeight.bold, color: textColor)),
           ],
         ),
         actions: [
@@ -2797,17 +2822,22 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // --- SMART THEME DETECTION (FIX) ---
+    // If user is Admin, FORCE Dark Mode. Otherwise use System Mode.
+    final isDark = currentUser.isAdmin || Theme.of(context).brightness == Brightness.dark;
+
     final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
     final cardColor = isDark ? const Color(0xFF2C2C2C) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
+    final appBarColor = isDark ? Colors.red.shade900 : Colors.white; // Red for Admin, White for User
+    final iconColor = isDark ? Colors.white : Colors.black;
 
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
         title: const Text("Manage Bank Accounts"),
-        backgroundColor: isDark ? Colors.red.shade900 : Colors.white,
-        foregroundColor: isDark ? Colors.white : Colors.black,
+        backgroundColor: appBarColor,
+        foregroundColor: iconColor,
         actions: [
           IconButton(onPressed: _addAccount, icon: const Icon(Icons.add))
         ],
@@ -2834,7 +2864,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
           final isSecondary = _secondaryAccountId == acc.id;
 
           return InkWell(
-            onTap: () => _viewAccountDetails(acc), // Make card clickable
+            onTap: () => _viewAccountDetails(acc),
             borderRadius: BorderRadius.circular(16),
             child: Container(
               decoration: BoxDecoration(
@@ -2924,6 +2954,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
     );
   }
 }
+
 // ==========================================
 //              ADMIN ZONE 🛠️
 // ==========================================
