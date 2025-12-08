@@ -306,6 +306,7 @@ List<Transaction> allGlobalTransactions = [
 ];
 
 // --- LOGIN SCREEN ---
+// --- LOGIN SCREEN (High Contrast Neon-Grey Text) ---
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -439,9 +440,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // --- UPDATED COLORS (NEON/BRIGHTER) ---
+    // --- UPDATED COLORS (SHARPER/HIGH CONTRAST) ---
     final primaryTextColor = isDark ? Colors.cyanAccent : Colors.blueAccent.shade700;
-    final buttonColor = const Color(0xFFE65100); // Orange for high visibility
+
+    // Use BlueGrey for that "Metallic/Neon Grey" look.
+    // shade200 is very bright against black. shade700 is strong against white.
+    final neonGrey = isDark ? Colors.blueGrey.shade200 : Colors.blueGrey.shade700;
+
+    final buttonColor = const Color(0xFFE65100);
 
     return Scaffold(
       body: Center(
@@ -459,14 +465,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: primaryTextColor, // <--- CHANGED TO BRIGHTER COLOR
+                  color: primaryTextColor,
                 ),
               ),
               Text(
                 'Campus Charging Solution',
                 style: TextStyle(
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  color: neonGrey, // <--- HIGH CONTRAST GREY
                   fontSize: 14,
+                  fontWeight: FontWeight.w600, // Thicker font
                 ),
               ),
               const SizedBox(height: 8),
@@ -490,18 +497,38 @@ class _LoginScreenState extends State<LoginScreen> {
 
               TextField(
                 controller: _idController,
-                decoration: const InputDecoration(
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                decoration: InputDecoration(
                   labelText: 'MAHE Staff/Student ID',
-                  prefixIcon: Icon(Icons.badge_outlined),
+                  labelStyle: TextStyle(color: neonGrey, fontWeight: FontWeight.w500), // <--- VISIBLE LABEL
+                  prefixIcon: Icon(Icons.badge_outlined, color: neonGrey),
+                  enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: neonGrey.withValues(alpha: 0.5)),
+                      borderRadius: BorderRadius.circular(12)
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: primaryTextColor),
+                      borderRadius: BorderRadius.circular(12)
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: _passController,
                 obscureText: true,
-                decoration: const InputDecoration(
+                style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                decoration: InputDecoration(
                   labelText: 'Password',
-                  prefixIcon: Icon(Icons.lock_outline),
+                  labelStyle: TextStyle(color: neonGrey, fontWeight: FontWeight.w500), // <--- VISIBLE LABEL
+                  prefixIcon: Icon(Icons.lock_outline, color: neonGrey),
+                  enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: neonGrey.withValues(alpha: 0.5)),
+                      borderRadius: BorderRadius.circular(12)
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: primaryTextColor),
+                      borderRadius: BorderRadius.circular(12)
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -514,7 +541,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: buttonColor,
                     foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 56), // <--- FIXED HEIGHT (Prevents cutoff)
+                    minimumSize: const Size(double.infinity, 56),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isLoading
@@ -530,15 +557,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Text(
                   'Continue as Guest',
                   style: TextStyle(
-                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                    color: neonGrey, // <--- HIGH CONTRAST GREY
                     fontSize: 16,
+                    fontWeight: FontWeight.bold, // Bolder
                   ),
                 ),
               ),
 
               const SizedBox(height: 24),
 
-              // Sign Up Link (Brighter Color)
+              // Sign Up Link
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -556,7 +584,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Text(
                       'Sign Up',
                       style: TextStyle(
-                          color: primaryTextColor, // <--- CHANGED TO BRIGHTER COLOR
+                          color: primaryTextColor,
                           fontWeight: FontWeight.bold
                       ),
                     ),
@@ -571,7 +599,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// --- SIGN UP SCREEN ---
+// --- SIGN UP SCREEN (Updated Styling) ---
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
 
@@ -587,7 +615,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _isLoading = false;
 
   void _handleSignUp() {
-    // 1. Basic empty check
     if (_nameController.text.isEmpty || _emailController.text.isEmpty || _idController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields')),
@@ -595,7 +622,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
 
-    // 2. NEW: Dual Domain Check
     String inputEmail = _emailController.text.trim().toLowerCase();
     bool isValidDomain = inputEmail.endsWith('@learner.manipal.edu') ||
         inputEmail.endsWith('@manipal.edu');
@@ -612,23 +638,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     setState(() => _isLoading = true);
 
-    // 3. Simulate API Call
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
-        // Auto-detect user type based on domain
         String type = inputEmail.endsWith('@manipal.edu') ? 'staff' : 'student';
 
         currentUser = UserProfile(
           id: _idController.text,
           name: _nameController.text,
           email: _emailController.text,
-          userType: type, // Automatically sets staff or student
-          walletBalance: 0.0, // New accounts start with 0
+          userType: type,
+          walletBalance: 0.0,
           bookings: [],
           transactions: [],
         );
 
-        // Navigate to Main App
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => const MainNavigation()),
@@ -644,6 +667,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // --- MATCHING LOGIN SCREEN COLORS ---
+    final primaryTextColor = isDark ? Colors.cyanAccent : Colors.blueAccent.shade700;
+    final neonGrey = isDark ? Colors.blueGrey.shade200 : Colors.blueGrey.shade700;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Create Account')),
       body: SingleChildScrollView(
@@ -651,36 +680,72 @@ class _SignUpScreenState extends State<SignUpScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               "Let's get started",
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF00796B)),
+              style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: primaryTextColor // <--- NEON BLUE
+              ),
             ),
             Text(
               "Create an account to manage charging",
-              style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? Colors.grey : Colors.grey.shade600),
+              style: TextStyle(
+                  color: neonGrey, // <--- NEON SILVER
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500
+              ),
             ),
             const SizedBox(height: 30),
 
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Full Name', prefixIcon: Icon(Icons.person_outline)),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                labelText: 'Full Name',
+                labelStyle: TextStyle(color: neonGrey),
+                prefixIcon: Icon(Icons.person_outline, color: neonGrey),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: neonGrey.withValues(alpha: 0.5)), borderRadius: BorderRadius.circular(12)),
+                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryTextColor), borderRadius: BorderRadius.circular(12)),
+              ),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'MAHE Email', prefixIcon: Icon(Icons.email_outlined)),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                labelText: 'MAHE Email',
+                labelStyle: TextStyle(color: neonGrey),
+                prefixIcon: Icon(Icons.email_outlined, color: neonGrey),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: neonGrey.withValues(alpha: 0.5)), borderRadius: BorderRadius.circular(12)),
+                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryTextColor), borderRadius: BorderRadius.circular(12)),
+              ),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _idController,
-              decoration: const InputDecoration(labelText: 'Registration/Staff ID', prefixIcon: Icon(Icons.badge_outlined)),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                labelText: 'Registration/Staff ID',
+                labelStyle: TextStyle(color: neonGrey),
+                prefixIcon: Icon(Icons.badge_outlined, color: neonGrey),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: neonGrey.withValues(alpha: 0.5)), borderRadius: BorderRadius.circular(12)),
+                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryTextColor), borderRadius: BorderRadius.circular(12)),
+              ),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _passController,
               obscureText: true,
-              decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock_outline)),
+              style: TextStyle(color: isDark ? Colors.white : Colors.black),
+              decoration: InputDecoration(
+                labelText: 'Password',
+                labelStyle: TextStyle(color: neonGrey),
+                prefixIcon: Icon(Icons.lock_outline, color: neonGrey),
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: neonGrey.withValues(alpha: 0.5)), borderRadius: BorderRadius.circular(12)),
+                focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: primaryTextColor), borderRadius: BorderRadius.circular(12)),
+              ),
             ),
             const SizedBox(height: 32),
 
@@ -690,7 +755,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _handleSignUp,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00796B),
+                  backgroundColor: const Color(0xFF00796B), // Kept original Teal for Sign Up to distinguish
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
