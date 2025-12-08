@@ -193,18 +193,20 @@ class UserProfile {
   String name;
   String email;
   String userType;
+  bool isAdmin; // <--- NEW FIELD
   double walletBalance;
   List<Booking> bookings;
-  List<Transaction> transactions; // <--- NEW FIELD
+  List<Transaction> transactions;
 
   UserProfile({
     required this.id,
     required this.name,
     required this.email,
     required this.userType,
+    this.isAdmin = false, // Default is false
     required this.walletBalance,
     required this.bookings,
-    required this.transactions, // <--- NEW REQUIREMENT
+    required this.transactions,
   });
 }
 
@@ -254,70 +256,10 @@ List<AppNotification> mockNotifications = [
 
 // Initial Stations
 List<Station> mockStations = [
-  Station(
-    id: '1',
-    name: 'MIT Quadrangle',
-    location: 'Block 4',
-    distance: 0.5,
-    isFastCharger: true,
-    totalPorts: 4,
-    availablePorts: 2,
-    isSharedPower: true,
-    isSolarPowered: true,
-    mapX: 0.4,
-    mapY: 0.3,
-    parkingSpaces: 8,
-    availableParking: 3,
-    pricePerUnit: 8.5,
-  ),
-  Station(
-    id: '2',
-    name: 'KMC Staff Parking',
-    location: 'Tiger Circle',
-    distance: 1.2,
-    isFastCharger: true,
-    totalPorts: 2,
-    availablePorts: 0,
-    isSharedPower: false,
-    isSolarPowered: true,
-    mapX: 0.7,
-    mapY: 0.6,
-    parkingSpaces: 6,
-    availableParking: 0,
-    pricePerUnit: 8.5,
-  ),
-  Station(
-    id: '3',
-    name: 'AB-5 Solar Carport',
-    location: 'Uni Road',
-    distance: 2.8,
-    isFastCharger: false,
-    totalPorts: 6,
-    availablePorts: 5,
-    isSharedPower: false,
-    isSolarPowered: true,
-    mapX: 0.2,
-    mapY: 0.8,
-    parkingSpaces: 12,
-    availableParking: 8,
-    pricePerUnit: 7.0,
-  ),
-  Station(
-    id: '4',
-    name: 'NLH EV Point',
-    location: 'NLH Complex',
-    distance: 0.8,
-    isFastCharger: false,
-    totalPorts: 4,
-    availablePorts: 4,
-    isSharedPower: false,
-    isSolarPowered: false,
-    mapX: 0.5,
-    mapY: 0.4,
-    parkingSpaces: 4,
-    availableParking: 2,
-    pricePerUnit: 8.0,
-  ),
+  Station(id: '1', name: 'MIT Quadrangle', location: 'Block 4', distance: 0.5, isFastCharger: true, totalPorts: 4, availablePorts: 2, isSharedPower: true, isSolarPowered: true, mapX: 0.4, mapY: 0.3, parkingSpaces: 8, availableParking: 3, pricePerUnit: 8.5),
+  Station(id: '2', name: 'KMC Staff Parking', location: 'Tiger Circle', distance: 1.2, isFastCharger: true, totalPorts: 2, availablePorts: 0, isSharedPower: false, isSolarPowered: true, mapX: 0.7, mapY: 0.6, parkingSpaces: 6, availableParking: 0, pricePerUnit: 8.5),
+  Station(id: '3', name: 'AB-5 Solar Carport', location: 'Uni Road', distance: 2.8, isFastCharger: false, totalPorts: 6, availablePorts: 5, isSharedPower: false, isSolarPowered: true, mapX: 0.2, mapY: 0.8, parkingSpaces: 12, availableParking: 8, pricePerUnit: 7.0),
+  Station(id: '4', name: 'NLH EV Point', location: 'NLH Complex', distance: 0.8, isFastCharger: false, totalPorts: 4, availablePorts: 4, isSharedPower: false, isSolarPowered: false, mapX: 0.5, mapY: 0.4, parkingSpaces: 4, availableParking: 2, pricePerUnit: 8.0),
 ];
 
 // Global User State (Starts empty, populated on Login)
@@ -333,6 +275,11 @@ UserProfile currentUser = UserProfile(
     Transaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
   ],
 );
+List<Transaction> allGlobalTransactions = [
+  Transaction(id: 'TXN_001', title: 'Payment - User A', date: DateTime.now().subtract(const Duration(minutes: 10)), amount: 120.0, isCredit: false),
+  Transaction(id: 'TXN_002', title: 'Wallet Load - User B', date: DateTime.now().subtract(const Duration(minutes: 45)), amount: 500.0, isCredit: true),
+  Transaction(id: 'TXN_003', title: 'Payment - User C', date: DateTime.now().subtract(const Duration(hours: 2)), amount: 85.0, isCredit: false),
+];
 
 // --- LOGIN SCREEN ---
 class LoginScreen extends StatefulWidget {
@@ -351,44 +298,92 @@ class _LoginScreenState extends State<LoginScreen> {
     // 1. Basic validation
     if (_idController.text.isEmpty || _passController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter ID and password')),
+        const SnackBar(content: Text('Please enter ID/Email and password')),
       );
       return;
     }
 
-    // --- NEW: SMART EMAIL CHECK ---
     String inputText = _idController.text.trim();
-    String finalEmail;
+    String password = _passController.text.trim();
 
+    // ==========================================
+    // 🚨 ADMIN CHECK (Priority 1)
+    // ==========================================
+    if (inputText == 'arihant@manipal.edu' && password == '123') {
+      setState(() => _isLoading = true);
+
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          // Create ADMIN Profile
+          currentUser = UserProfile(
+            id: 'ADMIN_001',
+            name: 'Arihant (Admin)',
+            email: 'arihant@manipal.edu',
+            userType: 'admin',
+            isAdmin: true, // <--- Key Flag
+            walletBalance: 99999.0,
+            bookings: [],
+            transactions: [],
+          );
+
+          // Route to the special ADMIN Dashboard
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+          );
+        }
+      });
+      return; // Stop here, do not run standard logic
+    }
+
+    // ==========================================
+    // 👤 STANDARD USER LOGIC (Students/Staff)
+    // ==========================================
+
+    String finalEmail;
+    String userType = 'student'; // Default
+
+    // --- SMART EMAIL/ID CHECK ---
     if (inputText.contains('@')) {
-      // If user typed a full email, check the domain
-      if (!inputText.toLowerCase().endsWith('@learner.manipal.edu')) {
+      // If user typed a full email, check valid domains
+      String lowerInput = inputText.toLowerCase();
+      bool isValid = lowerInput.endsWith('@learner.manipal.edu') ||
+          lowerInput.endsWith('@manipal.edu');
+
+      if (!isValid) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Only @learner.manipal.edu emails are allowed'),
+            content: Text('Use a valid Manipal email (@learner.manipal.edu or @manipal.edu)'),
             backgroundColor: Colors.red,
           ),
         );
-        return; // Stop the login process
+        return;
       }
       finalEmail = inputText;
+
+      // Auto-set type to staff if they used the official manipal.edu domain
+      if (lowerInput.endsWith('@manipal.edu')) {
+        userType = 'staff';
+      }
+
     } else {
-      // If user typed just an ID, append the domain automatically
+      // If user typed just an ID, default to learner email
       finalEmail = '$inputText@learner.manipal.edu';
     }
-    // ------------------------------
 
     setState(() => _isLoading = true);
 
-    // Simulate API delay
+    // Simulate API delay for standard users
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
-        // Set Mock Data for Login
+        // Set Mock Data for Standard User
         currentUser = UserProfile(
-          id: _idController.text,
-          name: 'Manipal User',
-          email: finalEmail, // <--- UPDATED THIS to use the checked email
-          userType: 'student',
+          // If they typed an email, split it to get the ID part. If just ID, use it directly.
+          id: inputText.contains('@') ? inputText.split('@')[0] : inputText,
+          name: userType == 'staff' ? 'Manipal Staff' : 'Manipal Student',
+          email: finalEmail,
+          userType: userType,
+          isAdmin: false, // Standard users are NOT admins
           walletBalance: 450.0,
           bookings: [
             Booking(
@@ -418,6 +413,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ],
         );
 
+        // Route to Standard Home Screen
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MainNavigation()),
@@ -615,11 +611,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
 
-    // 2. NEW: Email Domain Check
-    if (!_emailController.text.toLowerCase().endsWith('@learner.manipal.edu')) {
+    // 2. NEW: Dual Domain Check
+    String inputEmail = _emailController.text.trim().toLowerCase();
+    bool isValidDomain = inputEmail.endsWith('@learner.manipal.edu') ||
+        inputEmail.endsWith('@manipal.edu');
+
+    if (!isValidDomain) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Only @learner.manipal.edu emails are allowed'),
+          content: Text('Only @learner.manipal.edu or @manipal.edu emails allowed'),
           backgroundColor: Colors.red,
         ),
       );
@@ -628,19 +628,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     setState(() => _isLoading = true);
 
-    // ... rest of your existing logic (Future.delayed, etc.) ...
+    // 3. Simulate API Call
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
+        // Auto-detect user type based on domain
+        String type = inputEmail.endsWith('@manipal.edu') ? 'staff' : 'student';
+
         currentUser = UserProfile(
           id: _idController.text,
           name: _nameController.text,
           email: _emailController.text,
-          userType: 'student',
-          walletBalance: 0.0,
+          userType: type, // Automatically sets staff or student
+          walletBalance: 0.0, // New accounts start with 0
           bookings: [],
           transactions: [],
         );
 
+        // Navigate to Main App
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => const MainNavigation()),
@@ -2608,14 +2612,23 @@ class TransactionHistoryScreen extends StatelessWidget {
           final t = currentUser.transactions[index];
           return ListTile(
             leading: CircleAvatar(
-              backgroundColor: t.isCredit ? Colors.green.shade50 : Colors.red.shade50,
-              child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.red),
+              backgroundColor: t.isCredit
+                  ? Colors.green.withValues(alpha: 0.2)
+                  : Colors.red.withValues(alpha: 0.2),
+              child: Icon(
+                  t.isCredit ? Icons.arrow_downward : Icons.arrow_upward,
+                  color: t.isCredit ? Colors.green : Colors.red
+              ),
             ),
             title: Text(t.title, style: const TextStyle(fontWeight: FontWeight.bold)),
             subtitle: Text("${t.date.day}/${t.date.month}/${t.date.year}"),
             trailing: Text(
               "${t.isCredit ? '+' : '-'} ₹${t.amount.toStringAsFixed(0)}",
-              style: TextStyle(fontWeight: FontWeight.bold, color: t.isCredit ? Colors.green : Colors.red, fontSize: 16),
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: t.isCredit ? Colors.green : Colors.red,
+                  fontSize: 16
+              ),
             ),
           );
         },
@@ -2624,37 +2637,763 @@ class TransactionHistoryScreen extends StatelessWidget {
   }
 }
 
-// 3. BANK DETAILS SCREEN
-class BankDetailsScreen extends StatelessWidget {
+// 3. BANK DETAILS SCREEN (Fully Editable & Dynamic)
+class BankDetailsScreen extends StatefulWidget {
   const BankDetailsScreen({super.key});
+
+  @override
+  State<BankDetailsScreen> createState() => _BankDetailsScreenState();
+}
+
+// Simple model for a bank account
+class BankAccount {
+  String id;
+  String bankName;
+  String accountNumber;
+  String holderName;
+
+  BankAccount({
+    required this.id,
+    required this.bankName,
+    required this.accountNumber,
+    required this.holderName
+  });
+}
+
+class _BankDetailsScreenState extends State<BankDetailsScreen> {
+  // Initial Mock Data
+  List<BankAccount> accounts = [
+    BankAccount(id: '1', bankName: 'ICICI BANK', accountNumber: '**** **** **** 1234', holderName: 'ARIHANT K'),
+  ];
+
+  // Track which account is what
+  String? _primaryAccountId = '1';
+  String? _secondaryAccountId;
+
+  // Controllers
+  final _bankController = TextEditingController();
+  final _accController = TextEditingController();
+  final _holderController = TextEditingController();
+
+  void _addAccount() {
+    _bankController.clear();
+    _accController.clear();
+    _holderController.clear();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Add Bank Account"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _bankController, decoration: const InputDecoration(labelText: "Bank Name", border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: _accController, decoration: const InputDecoration(labelText: "Account Number", border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: _holderController, decoration: const InputDecoration(labelText: "Holder Name", border: OutlineInputBorder())),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              if (_bankController.text.isNotEmpty) {
+                setState(() {
+                  accounts.add(BankAccount(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    bankName: _bankController.text.toUpperCase(),
+                    accountNumber: _accController.text,
+                    holderName: _holderController.text.toUpperCase(),
+                  ));
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Add"),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _deleteAccount(String id) {
+    setState(() {
+      accounts.removeWhere((a) => a.id == id);
+      if (_primaryAccountId == id) _primaryAccountId = null;
+      if (_secondaryAccountId == id) _secondaryAccountId = null;
+    });
+  }
+
+  void _setPrimary(String id) {
+    setState(() {
+      _primaryAccountId = id;
+      // If this was secondary, remove secondary status (can't be both)
+      if (_secondaryAccountId == id) _secondaryAccountId = null;
+    });
+  }
+
+  void _setSecondary(String id) {
+    setState(() {
+      _secondaryAccountId = id;
+      // If this was primary, remove primary status
+      if (_primaryAccountId == id) _primaryAccountId = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
+    final cardColor = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    return Scaffold(
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        title: const Text("Manage Bank Accounts"),
+        backgroundColor: isDark ? Colors.red.shade900 : Colors.white,
+        foregroundColor: isDark ? Colors.white : Colors.black,
+        actions: [
+          IconButton(onPressed: _addAccount, icon: const Icon(Icons.add))
+        ],
+      ),
+      body: accounts.isEmpty
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.account_balance, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            const Text("No accounts linked", style: TextStyle(color: Colors.grey)),
+            TextButton(onPressed: _addAccount, child: const Text("Add Account"))
+          ],
+        ),
+      )
+          : ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: accounts.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 16),
+        itemBuilder: (context, index) {
+          final acc = accounts[index];
+          final isPrimary = _primaryAccountId == acc.id;
+          final isSecondary = _secondaryAccountId == acc.id;
+
+          return Container(
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)],
+              border: isPrimary ? Border.all(color: Colors.green, width: 2) :
+              isSecondary ? Border.all(color: Colors.orange, width: 2) : null,
+            ),
+            child: Column(
+              children: [
+                // Bank Card Visual
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                        colors: isPrimary
+                            ? [const Color(0xFF00796B), const Color(0xFF004D40)]
+                            : (isDark ? [Colors.grey.shade800, Colors.black] : [Colors.blueGrey, Colors.grey]),
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight
+                    ),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(acc.bankName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          const Icon(Icons.contactless, color: Colors.white70),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Text(acc.accountNumber, style: const TextStyle(color: Colors.white, fontSize: 18, letterSpacing: 2)),
+                      const SizedBox(height: 10),
+                      Text(acc.holderName, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ],
+                  ),
+                ),
+
+                // Controls
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: RadioListTile<String>(
+                              title: Text("Primary (Receive)", style: TextStyle(fontSize: 12, color: textColor)),
+                              value: acc.id,
+                              groupValue: _primaryAccountId,
+                              activeColor: Colors.green,
+                              onChanged: (val) => _setPrimary(val!),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                          Expanded(
+                            child: RadioListTile<String>(
+                              title: Text("Secondary (Backup)", style: TextStyle(fontSize: 12, color: textColor)),
+                              value: acc.id,
+                              groupValue: _secondaryAccountId,
+                              activeColor: Colors.orange,
+                              onChanged: (val) => _setSecondary(val!),
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 1),
+                      TextButton.icon(
+                        onPressed: () => _deleteAccount(acc.id),
+                        icon: const Icon(Icons.delete, color: Colors.red, size: 18),
+                        label: const Text("Unlink Account", style: TextStyle(color: Colors.red)),
+                      )
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+// ==========================================
+//              ADMIN ZONE 🛠️
+// ==========================================
+
+// --- 1. ADMIN NAVIGATION CONTAINER (Matches User UI) ---
+class AdminDashboardScreen extends StatefulWidget {
+  const AdminDashboardScreen({super.key});
+
+  @override
+  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  int _selectedIndex = 0;
+
+  final List<Widget> _adminScreens = [
+    const AdminHomeScreen(),
+    const AdminMapScreen(),
+    const AdminUsersScreen(),
+    const AdminTransactionMonitor(),
+    const AdminProfileScreen(),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Linked Bank Account")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Card(
-              color: const Color(0xFF053c6d), // ICICI Corporate Blue
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [Text("ICICI BANK", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), Icon(Icons.contactless, color: Colors.white)]),
-                  const SizedBox(height: 30),
-                  const Text("**** **** **** 1234", style: TextStyle(color: Colors.white, fontSize: 22, letterSpacing: 2)),
-                  const SizedBox(height: 20),
-                  Text("ARIHANT K", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ],
-                ),
-              ),
+      backgroundColor: const Color(0xFF1E1E1E), // Dark Background
+      body: _adminScreens[_selectedIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        indicatorColor: Colors.redAccent.withValues(alpha: 0.2),
+        backgroundColor: Colors.black,
+        destinations: const [
+          NavigationDestination(
+              icon: Icon(Icons.dashboard_outlined, color: Colors.grey),
+              selectedIcon: Icon(Icons.dashboard, color: Colors.redAccent),
+              label: 'Home'
+          ),
+          NavigationDestination(
+              icon: Icon(Icons.add_location_alt_outlined, color: Colors.grey),
+              selectedIcon: Icon(Icons.add_location_alt, color: Colors.redAccent),
+              label: 'Map'
+          ),
+          NavigationDestination(
+              icon: Icon(Icons.group_outlined, color: Colors.grey),
+              selectedIcon: Icon(Icons.group, color: Colors.redAccent),
+              label: 'Users'
+          ),
+          NavigationDestination(
+              icon: Icon(Icons.monetization_on_outlined, color: Colors.grey),
+              selectedIcon: Icon(Icons.monetization_on, color: Colors.redAccent),
+              label: 'Finance'
+          ),
+          NavigationDestination(
+              icon: Icon(Icons.person_outline, color: Colors.grey),
+              selectedIcon: Icon(Icons.person, color: Colors.redAccent),
+              label: 'Admin'
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 2. ADMIN HOME (Stats & Quick Actions) ---
+class AdminHomeScreen extends StatelessWidget {
+  const AdminHomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Admin Stats
+          Row(
+            children: [
+              Expanded(child: _AdminStatCard(icon: Icons.ev_station, value: '${mockStations.length}', label: 'Active Chargers', color: Colors.blue)),
+              const SizedBox(width: 12),
+              Expanded(child: _AdminStatCard(icon: Icons.warning_amber_rounded, value: '0', label: 'Issues Reported', color: Colors.orange)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Text("Live Station List", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 12),
+          // List of Chargers
+          ...mockStations.map((s) => Card(
+            color: const Color(0xFF2C2C2C),
+            child: ListTile(
+              leading: Icon(Icons.ev_station, color: s.availablePorts > 0 ? Colors.greenAccent : Colors.redAccent),
+              title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+              subtitle: Text("${s.location} • ₹${s.pricePerUnit}/kWh", style: const TextStyle(color: Colors.white70)),
+              trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+              onTap: () {
+                // Open Full Details Inspector directly from Home
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (c) => _StationInspectorSheet(station: s),
+                );
+              },
             ),
-            const SizedBox(height: 24),
-            ListTile(title: const Text("Set as Primary Method"), trailing: Switch(value: true, onChanged: (v) {})),
-            ListTile(title: const Text("Unlink Account"), textColor: Colors.red, onTap: () {}),
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminStatCard extends StatelessWidget {
+  final IconData icon; final String value; final String label; final Color color;
+  const _AdminStatCard({required this.icon, required this.value, required this.label, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 30),
+          const SizedBox(height: 8),
+          Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
+          Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 3. ADMIN MAP (Click to Add + Full Details) ---
+class AdminMapScreen extends StatefulWidget {
+  const AdminMapScreen({super.key});
+  @override
+  State<AdminMapScreen> createState() => _AdminMapScreenState();
+}
+
+class _AdminMapScreenState extends State<AdminMapScreen> {
+
+  // Logic to add station at specific X,Y coordinates
+  void _showAddDialogAtLocation(double x, double y) {
+    final nameController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text("Deploy New Charger", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Coordinates: ${x.toStringAsFixed(2)}, ${y.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white54, fontSize: 12)),
+            const SizedBox(height: 16),
+            TextField(
+                controller: nameController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: "Station Name",
+                  labelStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+                  focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.redAccent)),
+                )
+            ),
           ],
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () {
+              if (nameController.text.isNotEmpty) {
+                setState(() {
+                  mockStations.add(Station(
+                    id: 'NEW_${DateTime.now().millisecondsSinceEpoch}',
+                    name: nameController.text,
+                    location: 'Pinned Location',
+                    distance: 0.0,
+                    isFastCharger: true,
+                    totalPorts: 4, availablePorts: 4,
+                    isSharedPower: false, isSolarPowered: false,
+                    mapX: x, mapY: y, // <--- SAVES CLICK LOCATION
+                    parkingSpaces: 5, availableParking: 5, pricePerUnit: 9.0,
+                  ));
+                });
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${nameController.text} deployed!")));
+              }
+            },
+            child: const Text("Deploy Here"),
+          )
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      body: Stack(
+        children: [
+          // 1. The Map Tap Detector (Tap empty space to add)
+          GestureDetector(
+            onTapUp: (details) {
+              final RenderBox box = context.findRenderObject() as RenderBox;
+              final Offset localOffset = box.globalToLocal(details.globalPosition);
+              final double x = localOffset.dx / box.size.width;
+              final double y = localOffset.dy / box.size.height;
+              _showAddDialogAtLocation(x, y);
+            },
+            child: Container(
+              color: const Color(0xFF2C2C2C),
+              width: double.infinity,
+              height: double.infinity,
+              child: Stack(
+                children: [
+                  Positioned(top: 100, left: 0, right: 0, height: 20, child: Container(color: Colors.white10)),
+                  Positioned(top: 0, bottom: 0, left: 150, width: 20, child: Container(color: Colors.white10)),
+                  const Center(child: Text("Tap anywhere to deploy a charger", style: TextStyle(color: Colors.white24))),
+                ],
+              ),
+            ),
+          ),
+
+          // 2. Existing Chargers (Tap to Inspect)
+          ...mockStations.map((station) {
+            return Positioned(
+              left: MediaQuery.of(context).size.width * station.mapX,
+              top: MediaQuery.of(context).size.height * station.mapY,
+              child: GestureDetector(
+                onTap: () {
+                  // Show FULL details when clicking map pin
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (c) => _StationInspectorSheet(station: station),
+                  );
+                },
+                child: Column(
+                  children: [
+                    const Icon(Icons.location_on, color: Colors.redAccent, size: 40),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
+                      child: Text(station.name, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+
+          // 3. Search Bar Overlay
+          Positioned(
+            top: 50, left: 16, right: 16,
+            child: Card(
+                color: const Color(0xFF1E1E1E),
+                child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(children: const [Icon(Icons.search, color: Colors.grey), SizedBox(width: 8), Text("Search map...", style: TextStyle(color: Colors.grey))])
+                )
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- SHARED: STATION INSPECTOR SHEET (Used by Map & Home) ---
+class _StationInspectorSheet extends StatelessWidget {
+  final Station station;
+  const _StationInspectorSheet({required this.station});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.6,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text(station.name, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
+              const Chip(label: Text("ACTIVE", style: TextStyle(color: Colors.white, fontSize: 10)), backgroundColor: Colors.green),
+            ],
+          ),
+          Text(station.location, style: const TextStyle(color: Colors.grey)),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(child: _buildStat("Price", "₹${station.pricePerUnit}", Icons.currency_rupee, Colors.blue)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildStat("Slots", "${station.availableParking}", Icons.local_parking, Colors.orange)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildStat("Type", station.isFastCharger ? "Fast" : "Slow", Icons.ev_station, Colors.purple)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Text("Admin Controls", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () { /* Simulate Maintenance */ Navigator.pop(context); },
+                  icon: const Icon(Icons.build, color: Colors.orange),
+                  label: const Text("Maintenance", style: TextStyle(color: Colors.orange)),
+                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.orange)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    // Delete Logic would go here
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  label: const Text("Delete", style: TextStyle(color: Colors.red)),
+                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStat(String label, String val, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 4. ADMIN USERS SCREEN (Replaces Bookings) ---
+class AdminUsersScreen extends StatelessWidget {
+  const AdminUsersScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text("User Management"),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _buildUserTile(context, "Rahul Sharma", "Student", "Active"),
+          _buildUserTile(context, "Prof. Anjali", "Staff", "Active"),
+          _buildUserTile(context, "Guest_992", "Guest", "Inactive"),
+          _buildUserTile(context, "Vikram Singh", "Student", "Suspended", isRed: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserTile(BuildContext context, String name, String type, String status, {bool isRed = false}) {
+    return Card(
+      color: const Color(0xFF2C2C2C),
+      child: ListTile(
+        leading: CircleAvatar(backgroundColor: isRed ? Colors.red.shade900 : Colors.blue.shade900, child: Text(name[0], style: const TextStyle(color: Colors.white))),
+        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        subtitle: Text("$type • $status", style: const TextStyle(color: Colors.white54)),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+        onTap: () {
+          // Show User Details Bottom Sheet (Simulated)
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Viewing data for $name")));
+        },
+      ),
+    );
+  }
+}
+
+// --- 5. ADMIN FINANCE (Total Stats + Transaction Log) ---
+class AdminTransactionMonitor extends StatelessWidget {
+  const AdminTransactionMonitor({super.key});
+  @override
+  Widget build(BuildContext context) {
+    double totalRevenue = allGlobalTransactions.where((t) => !t.isCredit).fold(0, (sum, t) => sum + t.amount);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Financial Overview'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: [
+          // Total Revenue Card
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [Colors.red.shade900, Colors.black]),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3))
+            ),
+            child: Column(
+              children: [
+                const Text("Total Revenue Generated", style: TextStyle(color: Colors.white70)),
+                const SizedBox(height: 8),
+                Text("₹${totalRevenue.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text("Does not include wallet top-ups", style: TextStyle(color: Colors.white24, fontSize: 10)),
+              ],
+            ),
+          ),
+
+          Expanded(
+            child: ListView.separated(
+              itemCount: allGlobalTransactions.length,
+              separatorBuilder: (_, __) => const Divider(color: Colors.white10),
+              itemBuilder: (context, index) {
+                final t = allGlobalTransactions[index];
+                return ListTile(
+                  leading: CircleAvatar(
+                      backgroundColor: const Color(0xFF2C2C2C),
+                      child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.redAccent)
+                  ),
+                  title: Text(t.title, style: const TextStyle(color: Colors.white)),
+                  subtitle: Text(t.id, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: Text('₹${t.amount}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- 6. ADMIN PROFILE (Admin Details) ---
+class AdminProfileScreen extends StatelessWidget {
+  const AdminProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Admin Profile'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const CircleAvatar(
+            radius: 50,
+            backgroundColor: Colors.redAccent,
+            child: Icon(Icons.admin_panel_settings, size: 50, color: Colors.white),
+          ),
+          const SizedBox(height: 16),
+          const Center(
+              child: Text(
+                "Administrator",
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+              )
+          ),
+          const Center(
+              child: Text(
+                "arihant@manipal.edu",
+                style: TextStyle(color: Colors.grey),
+              )
+          ),
+          const SizedBox(height: 40),
+
+          // Payment/Bank Settings (Admin View)
+          Container(
+            decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: const Icon(Icons.account_balance, color: Colors.white),
+              title: const Text('Institution Bank Details', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('Manage MAHE Main Account', style: TextStyle(color: Colors.grey)),
+              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const BankDetailsScreen()));
+              },
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          ElevatedButton(
+            onPressed: () => Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (r) => false
+            ),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 50)
+            ),
+            child: const Text("Logout"),
+          ),
+        ],
       ),
     );
   }
