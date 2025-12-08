@@ -2950,7 +2950,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1E1E1E), // Dark Background
+      backgroundColor: const Color(0xFF121212),
       body: _adminScreens[_selectedIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
@@ -2958,38 +2958,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         indicatorColor: Colors.redAccent.withValues(alpha: 0.2),
         backgroundColor: Colors.black,
         destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined, color: Colors.grey),
-              selectedIcon: Icon(Icons.dashboard, color: Colors.redAccent),
-              label: 'Home'
-          ),
-          NavigationDestination(
-              icon: Icon(Icons.add_location_alt_outlined, color: Colors.grey),
-              selectedIcon: Icon(Icons.add_location_alt, color: Colors.redAccent),
-              label: 'Map'
-          ),
-          NavigationDestination(
-              icon: Icon(Icons.group_outlined, color: Colors.grey),
-              selectedIcon: Icon(Icons.group, color: Colors.redAccent),
-              label: 'Users'
-          ),
-          NavigationDestination(
-              icon: Icon(Icons.monetization_on_outlined, color: Colors.grey),
-              selectedIcon: Icon(Icons.monetization_on, color: Colors.redAccent),
-              label: 'Finance'
-          ),
-          NavigationDestination(
-              icon: Icon(Icons.person_outline, color: Colors.grey),
-              selectedIcon: Icon(Icons.person, color: Colors.redAccent),
-              label: 'Admin'
-          ),
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined, color: Colors.grey), selectedIcon: Icon(Icons.dashboard, color: Colors.redAccent), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.add_location_alt_outlined, color: Colors.grey), selectedIcon: Icon(Icons.add_location_alt, color: Colors.redAccent), label: 'Map'),
+          NavigationDestination(icon: Icon(Icons.group_outlined, color: Colors.grey), selectedIcon: Icon(Icons.group, color: Colors.redAccent), label: 'Users'),
+          NavigationDestination(icon: Icon(Icons.monetization_on_outlined, color: Colors.grey), selectedIcon: Icon(Icons.monetization_on, color: Colors.redAccent), label: 'Finance'),
+          NavigationDestination(icon: Icon(Icons.person_outline, color: Colors.grey), selectedIcon: Icon(Icons.person, color: Colors.redAccent), label: 'Admin'),
         ],
       ),
     );
   }
 }
 
-// --- 2. ADMIN HOME (Editable Stations + Issue Tracking) ---
+// --- 2. ADMIN HOME (List View + Detailed Add Button) ---
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 
@@ -2999,89 +2979,89 @@ class AdminHomeScreen extends StatefulWidget {
 
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
-  // Edit Dialog logic
-  void _showEditDialog(Station s) {
-    final nameController = TextEditingController(text: s.name);
-    final priceController = TextEditingController(text: s.pricePerUnit.toString());
-    final parkController = TextEditingController(text: s.parkingSpaces.toString());
+  void _openStationInspector(Station s) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _StationInspectorSheet(station: s, onUpdate: () => setState(() {})),
+    );
+  }
+
+  // --- DETAILED ADD DIALOG FOR HOME ---
+  void _addNewStation() {
+    final nameController = TextEditingController();
+    final locController = TextEditingController();
+    final priceController = TextEditingController();
+    final spotsController = TextEditingController();
+    bool isFast = false;
+    bool isSolar = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: const Text("Edit Station Details", style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
-            TextField(controller: priceController, style: const TextStyle(color: Colors.white), keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Price (₹/kWh)", labelStyle: TextStyle(color: Colors.grey))),
-            TextField(controller: parkController, style: const TextStyle(color: Colors.white), keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Total Parking Spots", labelStyle: TextStyle(color: Colors.grey))),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-            onPressed: () {
-              setState(() {
-                // Find and update the station in the global list
-                int index = mockStations.indexOf(s);
-                if (index != -1) {
-                  mockStations[index] = Station(
-                    id: s.id, name: nameController.text, location: s.location, distance: s.distance, isFastCharger: s.isFastCharger, totalPorts: s.totalPorts,
-                    availablePorts: s.availablePorts, isSharedPower: s.isSharedPower, isSolarPowered: s.isSolarPowered, mapX: s.mapX, mapY: s.mapY,
-                    parkingSpaces: int.tryParse(parkController.text) ?? s.parkingSpaces,
-                    availableParking: s.availableParking,
-                    pricePerUnit: double.tryParse(priceController.text) ?? s.pricePerUnit,
-                  );
-                }
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station details updated!")));
-            },
-            child: const Text("Save"),
-          ),
-        ],
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2C2C2C),
+              title: const Text("Add New Charger", style: TextStyle(color: Colors.white)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price (₹)", labelStyle: TextStyle(color: Colors.grey)))),
+                        const SizedBox(width: 10),
+                        Expanded(child: TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Parking Spots", labelStyle: TextStyle(color: Colors.grey)))),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(title: const Text("Fast Charging", style: TextStyle(color: Colors.white)), value: isFast, onChanged: (val) => setDialogState(() => isFast = val), activeColor: Colors.redAccent),
+                    SwitchListTile(title: const Text("Solar Powered", style: TextStyle(color: Colors.white)), value: isSolar, onChanged: (val) => setDialogState(() => isSolar = val), activeColor: Colors.greenAccent),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                    onPressed: () {
+                      if (nameController.text.isNotEmpty) {
+                        setState(() {
+                          mockStations.add(Station(
+                            id: 'NEW_${DateTime.now().millisecondsSinceEpoch}',
+                            name: nameController.text,
+                            location: locController.text.isEmpty ? "Campus Area" : locController.text,
+                            distance: 0.5,
+                            isFastCharger: isFast,
+                            totalPorts: 4, availablePorts: 4, isSharedPower: false,
+                            isSolarPowered: isSolar,
+                            mapX: 0.5, mapY: 0.5, // Default center
+                            parkingSpaces: int.tryParse(spotsController.text) ?? 5,
+                            availableParking: int.tryParse(spotsController.text) ?? 5,
+                            pricePerUnit: double.tryParse(priceController.text) ?? 8.0,
+                          ));
+                        });
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Added!")));
+                      }
+                    },
+                    child: const Text("Add")
+                ),
+              ],
+            );
+          }
       ),
     );
-  }
-
-  // Show specific issues for a station
-  void _showStationIssues(List<ReportedIssue> stationIssues) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Reported Issues", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            ...stationIssues.map((issue) => ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.warning, color: Colors.redAccent),
-              title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
-              subtitle: Text("By: ${issue.reportedBy} • ${_timeAgo(issue.time)}", style: const TextStyle(color: Colors.grey)),
-            )),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _timeAgo(DateTime d) {
-    Duration diff = DateTime.now().difference(d);
-    if (diff.inHours > 0) return "${diff.inHours}h ago";
-    return "${diff.inMinutes}m ago";
   }
 
   @override
   Widget build(BuildContext context) {
-    // Count total issues for the dashboard header
     int totalIssues = mockIssues.length;
-
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -3089,81 +3069,48 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         backgroundColor: Colors.red.shade900,
         foregroundColor: Colors.white,
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addNewStation,
+        backgroundColor: Colors.redAccent,
+        icon: const Icon(Icons.add),
+        label: const Text("Add Charger"),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Admin Stats
+          // Stats
           Row(
             children: [
               Expanded(child: _AdminStatCard(icon: Icons.ev_station, value: '${mockStations.length}', label: 'Active Chargers', color: Colors.blue)),
               const SizedBox(width: 12),
-              Expanded(child: _AdminStatCard(icon: Icons.warning_amber_rounded, value: '$totalIssues', label: 'Total Issues', color: totalIssues > 0 ? Colors.red : Colors.orange)),
+              Expanded(child: _AdminStatCard(icon: Icons.warning_amber_rounded, value: '$totalIssues', label: 'Issues Reported', color: totalIssues > 0 ? Colors.red : Colors.orange)),
             ],
           ),
           const SizedBox(height: 24),
           const Text("Live Station List", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
           const SizedBox(height: 12),
-
-          // List of Chargers
+          // List
           ...mockStations.map((s) {
-            // Check for issues specific to this station
             List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == s.name).toList();
             bool hasIssues = stationIssues.isNotEmpty;
-
             return Card(
               color: const Color(0xFF2C2C2C),
               margin: const EdgeInsets.only(bottom: 12),
-              child: InkWell(
-                onTap: () => _showEditDialog(s), // TAP CARD TO EDIT
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.ev_station, color: s.availablePorts > 0 ? Colors.greenAccent : Colors.redAccent),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
-                                const SizedBox(height: 4),
-                                Text("${s.location} • ${s.parkingSpaces} Spots", style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                                Text("Price: ₹${s.pricePerUnit}/kWh", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
-                              ],
-                            ),
-                          ),
-                          // Edit Icon
-                          const Icon(Icons.edit, color: Colors.grey, size: 20),
-                        ],
-                      ),
-                      const Divider(color: Colors.white10),
-                      // Issue Section
-                      InkWell(
-                        onTap: hasIssues ? () => _showStationIssues(stationIssues) : null, // CLICK TO SEE ISSUES
-                        child: Row(
-                          children: [
-                            Icon(hasIssues ? Icons.error_outline : Icons.check_circle_outline,
-                                color: hasIssues ? Colors.redAccent : Colors.green, size: 16),
-                            const SizedBox(width: 8),
-                            Text(
-                              hasIssues ? "${stationIssues.length} Issues Reported" : "0 Issues",
-                              style: TextStyle(color: hasIssues ? Colors.redAccent : Colors.green, fontWeight: FontWeight.bold),
-                            ),
-                            const Spacer(),
-                            if(hasIssues)
-                              const Text("View Details >", style: TextStyle(color: Colors.grey, fontSize: 10)),
-                          ],
-                        ),
-                      )
-                    ],
-                  ),
+              child: ListTile(
+                leading: Icon(Icons.ev_station, color: s.availablePorts > 0 ? Colors.greenAccent : Colors.redAccent),
+                title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                subtitle: Row(
+                  children: [
+                    Text("${s.location} • ", style: const TextStyle(color: Colors.white70)),
+                    Text(hasIssues ? "${stationIssues.length} Issues" : "0 Issues", style: TextStyle(color: hasIssues ? Colors.redAccent : Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
+                  ],
                 ),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                onTap: () => _openStationInspector(s),
               ),
             );
           }),
+          const SizedBox(height: 80),
         ],
       ),
     );
@@ -3177,20 +3124,13 @@ class _AdminStatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 30),
-          const SizedBox(height: 8),
-          Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
-          Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 12)),
-        ],
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withValues(alpha: 0.3))),
+      child: Column(children: [Icon(icon, color: color, size: 30), const SizedBox(height: 8), Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)), Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 12))]),
     );
   }
 }
 
-// --- 3. ADMIN MAP (Click to Add + Full Inspector + Edit) ---
+// --- 3. ADMIN MAP (Click to Add + Inspector) ---
 class AdminMapScreen extends StatefulWidget {
   const AdminMapScreen({super.key});
   @override
@@ -3199,63 +3139,79 @@ class AdminMapScreen extends StatefulWidget {
 
 class _AdminMapScreenState extends State<AdminMapScreen> {
 
-  // Logic to add station at specific X,Y coordinates
+  // --- DETAILED ADD DIALOG FOR MAP ---
   void _showAddDialogAtLocation(double x, double y) {
     final nameController = TextEditingController();
+    final locController = TextEditingController(text: "Pinned Location");
+    final priceController = TextEditingController();
+    final spotsController = TextEditingController();
+    bool isFast = false;
+    bool isSolar = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: const Text("Deploy New Charger", style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text("Coordinates: ${x.toStringAsFixed(2)}, ${y.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white54, fontSize: 12)),
-            const SizedBox(height: 16),
-            TextField(
-                controller: nameController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: "Station Name",
-                  labelStyle: TextStyle(color: Colors.grey),
-                  enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-                  focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.redAccent)),
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2C2C2C),
+              title: const Text("Deploy New Charger", style: TextStyle(color: Colors.white)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("Coordinates: ${x.toStringAsFixed(2)}, ${y.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white54, fontSize: 10)),
+                    const SizedBox(height: 10),
+                    TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price (₹)", labelStyle: TextStyle(color: Colors.grey)))),
+                        const SizedBox(width: 10),
+                        Expanded(child: TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey)))),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(title: const Text("Fast Charging", style: TextStyle(color: Colors.white)), value: isFast, onChanged: (val) => setDialogState(() => isFast = val), activeColor: Colors.redAccent),
+                    SwitchListTile(title: const Text("Solar Powered", style: TextStyle(color: Colors.white)), value: isSolar, onChanged: (val) => setDialogState(() => isSolar = val), activeColor: Colors.greenAccent),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                  onPressed: () {
+                    if (nameController.text.isNotEmpty) {
+                      setState(() {
+                        mockStations.add(Station(
+                          id: 'NEW_${DateTime.now().millisecondsSinceEpoch}',
+                          name: nameController.text,
+                          location: locController.text,
+                          distance: 0.0,
+                          isFastCharger: isFast,
+                          totalPorts: 4, availablePorts: 4, isSharedPower: false,
+                          isSolarPowered: isSolar,
+                          mapX: x, mapY: y, // <--- SAVES CLICK LOCATION
+                          parkingSpaces: int.tryParse(spotsController.text) ?? 5,
+                          availableParking: int.tryParse(spotsController.text) ?? 5,
+                          pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
+                        ));
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Deployed!")));
+                    }
+                  },
+                  child: const Text("Deploy"),
                 )
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () {
-              if (nameController.text.isNotEmpty) {
-                setState(() {
-                  mockStations.add(Station(
-                    id: 'NEW_${DateTime.now().millisecondsSinceEpoch}',
-                    name: nameController.text,
-                    location: 'Pinned Location',
-                    distance: 0.0,
-                    isFastCharger: true,
-                    totalPorts: 4, availablePorts: 4,
-                    isSharedPower: false, isSolarPowered: false,
-                    mapX: x, mapY: y, // <--- SAVES CLICK LOCATION
-                    parkingSpaces: 5, availableParking: 5, pricePerUnit: 9.0,
-                  ));
-                });
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${nameController.text} deployed!")));
-              }
-            },
-            child: const Text("Deploy Here"),
-          )
-        ],
+              ],
+            );
+          }
       ),
     );
   }
 
-  // Open the detailed Inspector
   void _openStationInspector(Station s) {
     showModalBottomSheet(
       context: context,
@@ -3269,63 +3225,38 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
+      // ADD BUTTON FOR MAP SCREEN
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddDialogAtLocation(0.5, 0.5), // Center add
+        backgroundColor: Colors.redAccent,
+        icon: const Icon(Icons.add_location),
+        label: const Text("Add Charger"),
+      ),
       body: Stack(
         children: [
-          // 1. The Map Tap Detector (Tap empty space to add)
           GestureDetector(
             onTapUp: (details) {
               final RenderBox box = context.findRenderObject() as RenderBox;
               final Offset localOffset = box.globalToLocal(details.globalPosition);
-              final double x = localOffset.dx / box.size.width;
-              final double y = localOffset.dy / box.size.height;
-              _showAddDialogAtLocation(x, y);
+              _showAddDialogAtLocation(localOffset.dx / box.size.width, localOffset.dy / box.size.height);
             },
             child: Container(
               color: const Color(0xFF2C2C2C),
-              width: double.infinity,
-              height: double.infinity,
-              child: Stack(
-                children: [
-                  Positioned(top: 100, left: 0, right: 0, height: 20, child: Container(color: Colors.white10)),
-                  Positioned(top: 0, bottom: 0, left: 150, width: 20, child: Container(color: Colors.white10)),
-                  const Center(child: Text("Tap anywhere to deploy a charger", style: TextStyle(color: Colors.white24))),
-                ],
-              ),
+              width: double.infinity, height: double.infinity,
+              child: const Center(child: Text("Tap anywhere to deploy a charger", style: TextStyle(color: Colors.white24))),
             ),
           ),
-
-          // 2. Existing Chargers (Tap to Inspect)
           ...mockStations.map((station) {
             return Positioned(
               left: MediaQuery.of(context).size.width * station.mapX,
               top: MediaQuery.of(context).size.height * station.mapY,
               child: GestureDetector(
                 onTap: () => _openStationInspector(station),
-                child: Column(
-                  children: [
-                    const Icon(Icons.location_on, color: Colors.redAccent, size: 40),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
-                      child: Text(station.name, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
-                    ),
-                  ],
-                ),
+                child: Column(children: [const Icon(Icons.location_on, color: Colors.redAccent, size: 40), Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)), child: Text(station.name, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)))]),
               ),
             );
           }),
-
-          // 3. Search Bar Overlay
-          Positioned(
-            top: 50, left: 16, right: 16,
-            child: Card(
-                color: const Color(0xFF1E1E1E),
-                child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(children: const [Icon(Icons.search, color: Colors.grey), SizedBox(width: 8), Text("Search map...", style: TextStyle(color: Colors.grey))])
-                )
-            ),
-          ),
+          Positioned(top: 50, left: 16, right: 16, child: Card(color: const Color(0xFF1E1E1E), child: Padding(padding: const EdgeInsets.all(12), child: Row(children: const [Icon(Icons.search, color: Colors.grey), SizedBox(width: 8), Text("Search map...", style: TextStyle(color: Colors.grey))])))),
         ],
       ),
     );
@@ -3414,7 +3345,7 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
     bool hasIssues = stationIssues.isNotEmpty;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.55,
+      height: MediaQuery.of(context).size.height * 0.65, // Taller for more info
       decoration: const BoxDecoration(
         color: Color(0xFF1E1E1E),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -3445,7 +3376,37 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
               Expanded(child: _buildStat("Type", currentStation.isFastCharger ? "Fast" : "Slow", Icons.ev_station, Colors.purple)),
             ],
           ),
+          const SizedBox(height: 12),
+          // New row for Solar
+          Row(
+            children: [
+              Expanded(child: _buildStat("Power", currentStation.isSolarPowered ? "Solar" : "Grid", Icons.wb_sunny, currentStation.isSolarPowered ? Colors.greenAccent : Colors.grey)),
+            ],
+          ),
+
           const SizedBox(height: 24),
+          const Text("Reported Issues", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+
+          // --- ISSUES LIST INSIDE INSPECTOR ---
+          Expanded(
+            child: hasIssues
+                ? ListView.builder(
+              itemCount: stationIssues.length,
+              itemBuilder: (context, index) {
+                final issue = stationIssues[index];
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.warning_amber, color: Colors.redAccent),
+                  title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
+                  subtitle: Text("${issue.reportedBy} • 2h ago", style: const TextStyle(color: Colors.grey)),
+                );
+              },
+            )
+                : const Center(child: Text("No issues reported.", style: TextStyle(color: Colors.grey))),
+          ),
+
+          const SizedBox(height: 12),
           const Text("Actions", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           Row(
@@ -3461,8 +3422,8 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: _deleteStation,
-                  icon: const Icon(Icons.delete, color: Colors.red), label: const Text("Delete", style: TextStyle(color: Colors.red)),
-                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                  icon: const Icon(Icons.delete, color: Colors.red), label: const Text("Delete"),
+                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), foregroundColor: Colors.red),
                 ),
               ),
             ],
@@ -3484,41 +3445,24 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
 // --- 4. ADMIN USERS SCREEN ---
 class AdminUsersScreen extends StatelessWidget {
   const AdminUsersScreen({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        title: const Text("User Management"),
-        backgroundColor: Colors.red.shade900,
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text("User Management"), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildUserTile(context, "Rahul Sharma", "Student", "Active"),
-          _buildUserTile(context, "Prof. Anjali", "Staff", "Active"),
-          _buildUserTile(context, "Guest_992", "Guest", "Inactive"),
-          _buildUserTile(context, "Vikram Singh", "Student", "Suspended", isRed: true),
+          _buildUserTile("Rahul Sharma", "Student", "Active"),
+          _buildUserTile("Prof. Anjali", "Staff", "Active"),
+          _buildUserTile("Guest_992", "Guest", "Inactive"),
+          _buildUserTile("Vikram Singh", "Student", "Suspended", isRed: true),
         ],
       ),
     );
   }
-
-  Widget _buildUserTile(BuildContext context, String name, String type, String status, {bool isRed = false}) {
-    return Card(
-      color: const Color(0xFF2C2C2C),
-      child: ListTile(
-        leading: CircleAvatar(backgroundColor: isRed ? Colors.red.shade900 : Colors.blue.shade900, child: Text(name[0], style: const TextStyle(color: Colors.white))),
-        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        subtitle: Text("$type • $status", style: const TextStyle(color: Colors.white54)),
-        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Viewing data for $name")));
-        },
-      ),
-    );
+  Widget _buildUserTile(String name, String type, String status, {bool isRed = false}) {
+    return Card(color: const Color(0xFF2C2C2C), child: ListTile(leading: CircleAvatar(child: Text(name[0])), title: Text(name, style: const TextStyle(color: Colors.white)), subtitle: Text("$type • $status", style: const TextStyle(color: Colors.grey)), trailing: const Icon(Icons.chevron_right, color: Colors.grey)));
   }
 }
 
@@ -3527,57 +3471,26 @@ class AdminTransactionMonitor extends StatelessWidget {
   const AdminTransactionMonitor({super.key});
   @override
   Widget build(BuildContext context) {
-    // Calculates Total Revenue from Charging (excludes credits)
     double totalRevenue = allGlobalTransactions.where((t) => !t.isCredit).fold(0, (sum, t) => sum + t.amount);
-
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        title: const Text('Financial Overview'),
-        backgroundColor: Colors.red.shade900,
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('Financial Overview'), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
       body: Column(
         children: [
-          // Total Revenue Card
           Container(
-            width: double.infinity,
-            margin: const EdgeInsets.all(16),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Colors.red.shade900, Colors.black]),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3))
-            ),
-            child: Column(
-              children: [
-                const Text("Total Revenue Generated", style: TextStyle(color: Colors.white70)),
-                const SizedBox(height: 8),
-                Text("₹${totalRevenue.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                const Text("From all charging sessions", style: TextStyle(color: Colors.white24, fontSize: 10)),
-              ],
-            ),
+            width: double.infinity, margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.red.shade900, Colors.black]), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3))),
+            child: Column(children: [
+              const Text("Total Revenue Generated", style: TextStyle(color: Colors.white70)),
+              Text("₹${totalRevenue.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text("From all charging sessions", style: TextStyle(color: Colors.white24, fontSize: 10)),
+            ]),
           ),
-
-          Expanded(
-            child: ListView.separated(
-              itemCount: allGlobalTransactions.length,
-              separatorBuilder: (_, __) => const Divider(color: Colors.white10),
-              itemBuilder: (context, index) {
-                final t = allGlobalTransactions[index];
-                return ListTile(
-                  leading: CircleAvatar(
-                      backgroundColor: const Color(0xFF2C2C2C),
-                      child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.redAccent)
-                  ),
-                  title: Text(t.title, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text(t.id, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                  trailing: Text('₹${t.amount}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                );
-              },
-            ),
-          ),
+          Expanded(child: ListView.separated(itemCount: allGlobalTransactions.length, separatorBuilder: (_, __) => const Divider(color: Colors.white10), itemBuilder: (context, index) {
+            final t = allGlobalTransactions[index];
+            return ListTile(leading: CircleAvatar(backgroundColor: const Color(0xFF2C2C2C), child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.redAccent)), title: Text(t.title, style: const TextStyle(color: Colors.white)), subtitle: Text(t.id, style: const TextStyle(color: Colors.grey)), trailing: Text('₹${t.amount}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)));
+          })),
         ],
       ),
     );
@@ -3587,40 +3500,19 @@ class AdminTransactionMonitor extends StatelessWidget {
 // --- 6. ADMIN PROFILE (Bank Settings Only) ---
 class AdminProfileScreen extends StatelessWidget {
   const AdminProfileScreen({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(
-        title: const Text('Admin Profile'),
-        backgroundColor: Colors.red.shade900,
-        foregroundColor: Colors.white,
-      ),
+      appBar: AppBar(title: const Text('Admin Profile'), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const CircleAvatar(
-            radius: 50,
-            backgroundColor: Colors.redAccent,
-            child: Icon(Icons.admin_panel_settings, size: 50, color: Colors.white),
-          ),
+          const CircleAvatar(radius: 50, backgroundColor: Colors.redAccent, child: Icon(Icons.admin_panel_settings, size: 50, color: Colors.white)),
           const SizedBox(height: 16),
-          const Center(
-              child: Text(
-                "Administrator",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-              )
-          ),
-          const Center(
-              child: Text(
-                "arihant@manipal.edu",
-                style: TextStyle(color: Colors.grey),
-              )
-          ),
+          const Center(child: Text("Administrator", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white))),
+          const Center(child: Text("arihant@manipal.edu", style: TextStyle(color: Colors.grey))),
           const SizedBox(height: 40),
-
-          // Payment/Bank Settings (Admin View)
           Container(
             decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
             child: ListTile(
@@ -3628,27 +3520,11 @@ class AdminProfileScreen extends StatelessWidget {
               title: const Text('Institution Bank Details', style: TextStyle(color: Colors.white)),
               subtitle: const Text('Manage MAHE Main Account', style: TextStyle(color: Colors.grey)),
               trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const BankDetailsScreen()));
-              },
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BankDetailsScreen())),
             ),
           ),
-
           const SizedBox(height: 24),
-
-          ElevatedButton(
-            onPressed: () => Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (r) => false
-            ),
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 50)
-            ),
-            child: const Text("Logout"),
-          ),
+          ElevatedButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)), child: const Text("Logout")),
         ],
       ),
     );
