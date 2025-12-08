@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:google_fonts/google_fonts.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
@@ -8,12 +9,16 @@ void main() {
 }
 
 // --- MAIN APP WIDGET ---
-
 class MaheEVApp extends StatelessWidget {
   const MaheEVApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // 1. Define the Premium Font Text Theme (Standard Size to prevent crash)
+    TextTheme premiumTextTheme(TextTheme base) {
+      return GoogleFonts.poppinsTextTheme(base);
+    }
+
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeNotifier,
       builder: (_, mode, __) {
@@ -22,71 +27,67 @@ class MaheEVApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           themeMode: mode,
 
-          // --- LIGHT THEME DEFINITION ---
+          // --- LIGHT THEME ---
           theme: ThemeData(
             useMaterial3: true,
             brightness: Brightness.light,
             colorScheme: ColorScheme.fromSeed(
               seedColor: const Color(0xFF00796B),
-              surface: const Color(0xFFF5F7FA),
-              onSurface: Colors.black87,
+              surface: const Color(0xFFF8F9FA),
+              onSurface: const Color(0xFF1A1C1E),
               brightness: Brightness.light,
             ),
-            scaffoldBackgroundColor: const Color(0xFFF5F7FA),
-            fontFamily: 'Roboto',
+            scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+            textTheme: premiumTextTheme(ThemeData.light().textTheme),
             appBarTheme: const AppBarTheme(
               backgroundColor: Colors.white,
-              foregroundColor: Colors.black87,
+              foregroundColor: Color(0xFF1A1C1E),
               elevation: 0,
               centerTitle: true,
-              iconTheme: IconThemeData(color: Colors.black87),
             ),
             cardTheme: CardThemeData(
               color: Colors.white,
-              surfaceTintColor: Colors.white,
-              elevation: 2,
-              shadowColor: Colors.black12,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: Colors.grey.withValues(alpha: 0.1)),
+              ),
               margin: const EdgeInsets.only(bottom: 12),
-            ),
-            dividerTheme: DividerThemeData(
-              color: Colors.grey.withValues(alpha: 0.2),
-              thickness: 1,
             ),
             elevatedButtonTheme: ElevatedButtonThemeData(
               style: ElevatedButton.styleFrom(
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
               ),
             ),
           ),
 
-          // --- DARK THEME DEFINITION ---
+          // --- DARK THEME ---
           darkTheme: ThemeData(
             useMaterial3: true,
             brightness: Brightness.dark,
             colorScheme: ColorScheme.fromSeed(
               seedColor: const Color(0xFF00796B),
               brightness: Brightness.dark,
-              surface: const Color(0xFF1E1E1E),
+              surface: const Color(0xFF121212),
               onSurface: Colors.white,
             ),
-            scaffoldBackgroundColor: const Color(0xFF121212),
-            fontFamily: 'Roboto',
+            scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+            textTheme: premiumTextTheme(ThemeData.dark().textTheme),
             appBarTheme: const AppBarTheme(
-              backgroundColor: Color(0xFF1E1E1E),
+              backgroundColor: Color(0xFF121212),
               foregroundColor: Colors.white,
               elevation: 0,
               centerTitle: true,
-              iconTheme: IconThemeData(color: Colors.white),
             ),
             cardTheme: CardThemeData(
               color: const Color(0xFF1E1E1E),
-              surfaceTintColor: const Color(0xFF1E1E1E),
               elevation: 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
               ),
               margin: const EdgeInsets.only(bottom: 12),
             ),
@@ -94,12 +95,11 @@ class MaheEVApp extends StatelessWidget {
               filled: true,
               fillColor: const Color(0xFF2C2C2C),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide.none,
               ),
-              hintStyle: TextStyle(color: Colors.grey.shade500),
-              labelStyle: TextStyle(color: Colors.grey.shade400),
-              prefixIconColor: Colors.grey.shade400,
+              hintStyle: TextStyle(color: Colors.grey.shade600),
+              contentPadding: const EdgeInsets.all(20),
             ),
             dividerTheme: DividerThemeData(
               color: Colors.white.withValues(alpha: 0.1),
@@ -113,6 +113,7 @@ class MaheEVApp extends StatelessWidget {
     );
   }
 }
+
 
 // --- DATA MODELS ---
 
@@ -329,12 +330,9 @@ class _LoginScreenState extends State<LoginScreen> {
     String inputText = _idController.text.trim();
     String password = _passController.text.trim();
 
-    // ==========================================
-    // 🚨 ADMIN CHECK (Priority 1)
-    // ==========================================
+    // --- ADMIN CHECK ---
     if (inputText == 'arihant@manipal.edu' && password == '123') {
       setState(() => _isLoading = true);
-
       Future.delayed(const Duration(seconds: 1), () {
         if (mounted) {
           // Create ADMIN Profile
@@ -343,32 +341,25 @@ class _LoginScreenState extends State<LoginScreen> {
             name: 'Arihant (Admin)',
             email: 'arihant@manipal.edu',
             userType: 'admin',
-            isAdmin: true, // <--- Key Flag
+            isAdmin: true,
             walletBalance: 99999.0,
             bookings: [],
             transactions: [],
           );
-
-          // Route to the special ADMIN Dashboard
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
           );
         }
       });
-      return; // Stop here, do not run standard logic
+      return;
     }
 
-    // ==========================================
-    // 👤 STANDARD USER LOGIC (Students/Staff)
-    // ==========================================
-
+    // --- STANDARD USER CHECK ---
     String finalEmail;
-    String userType = 'student'; // Default
+    String userType = 'student';
 
-    // --- SMART EMAIL/ID CHECK ---
     if (inputText.contains('@')) {
-      // If user typed a full email, check valid domains
       String lowerInput = inputText.toLowerCase();
       bool isValid = lowerInput.endsWith('@learner.manipal.edu') ||
           lowerInput.endsWith('@manipal.edu');
@@ -383,30 +374,21 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
       finalEmail = inputText;
-
-      // Auto-set type to staff if they used the official manipal.edu domain
-      if (lowerInput.endsWith('@manipal.edu')) {
-        userType = 'staff';
-      }
-
+      if (lowerInput.endsWith('@manipal.edu')) userType = 'staff';
     } else {
-      // If user typed just an ID, default to learner email
       finalEmail = '$inputText@learner.manipal.edu';
     }
 
     setState(() => _isLoading = true);
 
-    // Simulate API delay for standard users
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
-        // Set Mock Data for Standard User
         currentUser = UserProfile(
-          // If they typed an email, split it to get the ID part. If just ID, use it directly.
           id: inputText.contains('@') ? inputText.split('@')[0] : inputText,
           name: userType == 'staff' ? 'Manipal Staff' : 'Manipal Student',
           email: finalEmail,
           userType: userType,
-          isAdmin: false, // Standard users are NOT admins
+          isAdmin: false,
           walletBalance: 450.0,
           bookings: [
             Booking(
@@ -419,24 +401,11 @@ class _LoginScreenState extends State<LoginScreen> {
             )
           ],
           transactions: [
-            Transaction(
-                id: 'T1',
-                title: 'Wallet Top-up',
-                date: DateTime.now().subtract(const Duration(days: 5)),
-                amount: 500.0,
-                isCredit: true
-            ),
-            Transaction(
-                id: 'T2',
-                title: 'EV Charge - MIT Quad',
-                date: DateTime.now().subtract(const Duration(days: 2)),
-                amount: 120.50,
-                isCredit: false
-            ),
+            Transaction(id: 'T1', title: 'Wallet Top-up', date: DateTime.now().subtract(const Duration(days: 5)), amount: 500.0, isCredit: true),
+            Transaction(id: 'T2', title: 'EV Charge - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 120.50, isCredit: false),
           ],
         );
 
-        // Route to Standard Home Screen
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MainNavigation()),
@@ -449,24 +418,18 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
-        // Create Guest Profile
         currentUser = UserProfile(
           id: 'GUEST',
           name: 'Guest User',
           email: 'guest@temp.mahe.ev',
           userType: 'guest',
-          walletBalance: 100.0, // Free credits for testing
+          walletBalance: 100.0,
           bookings: [],
           transactions: [],
         );
-
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const MainNavigation()),
-        );
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Logged in as Guest. Some features may be limited.')),
         );
       }
     });
@@ -475,32 +438,30 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = const Color(0xFF00796B);
+
+    // --- UPDATED COLORS (NEON/BRIGHTER) ---
+    final primaryTextColor = isDark ? Colors.cyanAccent : Colors.blueAccent.shade700;
+    final buttonColor = const Color(0xFFE65100); // Orange for high visibility
 
     return Scaffold(
-      // We rely on the global Theme ScaffoldBackgroundColor
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
-              // --- UPDATED LOGO SECTION ---
               Image.asset(
                 'assets/app_icon.png',
-                height: 150, // You can change this number to make it bigger/smaller
+                height: 150,
               ),
-              // ----------------------------
-
               const SizedBox(height: 24),
               Text(
                 'MAHE EV Charging',
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: primaryColor,
+                  color: primaryTextColor, // <--- CHANGED TO BRIGHTER COLOR
                 ),
               ),
-// ... rest of your code ...
               Text(
                 'Campus Charging Solution',
                 style: TextStyle(
@@ -509,7 +470,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 8),
-              // Eco Badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
@@ -528,7 +488,6 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 48),
 
-              // Inputs
               TextField(
                 controller: _idController,
                 decoration: const InputDecoration(
@@ -547,15 +506,15 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Login Button
+              // Login Button (Fixed Height)
               SizedBox(
                 width: double.infinity,
-                height: 52,
                 child: ElevatedButton(
                   onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE65100),
+                    backgroundColor: buttonColor,
                     foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 56), // <--- FIXED HEIGHT (Prevents cutoff)
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   child: _isLoading
@@ -566,7 +525,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 16),
 
-              // Guest Button
               TextButton(
                 onPressed: _isLoading ? null : _continueAsGuest,
                 child: Text(
@@ -580,7 +538,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 24),
 
-              // Sign Up Link
+              // Sign Up Link (Brighter Color)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -597,7 +555,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     },
                     child: Text(
                       'Sign Up',
-                      style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: primaryTextColor, // <--- CHANGED TO BRIGHTER COLOR
+                          fontWeight: FontWeight.bold
+                      ),
                     ),
                   ),
                 ],
@@ -3161,7 +3122,7 @@ class _AdminStatCard extends StatelessWidget {
   }
 }
 
-// --- 3. ADMIN MAP (Click to Add + Inspector) ---
+// --- 3. ADMIN MAP (Click to Add + Inspector + Fixed Label Visibility) ---
 class AdminMapScreen extends StatefulWidget {
   const AdminMapScreen({super.key});
   @override
@@ -3283,7 +3244,28 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
               top: MediaQuery.of(context).size.height * station.mapY,
               child: GestureDetector(
                 onTap: () => _openStationInspector(station),
-                child: Column(children: [const Icon(Icons.location_on, color: Colors.redAccent, size: 40), Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)), child: Text(station.name, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)))]),
+                child: Column(
+                  children: [
+                    const Icon(Icons.location_on, color: Colors.redAccent, size: 40),
+                    // --- FIX: FORCE WHITE BACKGROUND LABEL FOR VISIBILITY ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                          color: Colors.white, // Always White Box
+                          borderRadius: BorderRadius.circular(4),
+                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 4)]
+                      ),
+                      child: Text(
+                          station.name,
+                          style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black // Always Black Text
+                          )
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           }),
