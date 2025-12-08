@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 
-// --- GLOBAL THEME CONTROLLER ---
-// This allows us to toggle Dark Mode from anywhere in the app
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
 void main() {
@@ -10,6 +8,7 @@ void main() {
 }
 
 // --- MAIN APP WIDGET ---
+
 class MaheEVApp extends StatelessWidget {
   const MaheEVApp({super.key});
 
@@ -151,6 +150,22 @@ class Station {
   });
 }
 
+class Transaction {
+  final String id;
+  final String title;
+  final DateTime date;
+  final double amount;
+  final bool isCredit; // true = added money, false = paid for charging
+
+  Transaction({
+    required this.id,
+    required this.title,
+    required this.date,
+    required this.amount,
+    required this.isCredit,
+  });
+}
+
 class Booking {
   final String id;
   final String stationId;
@@ -177,9 +192,10 @@ class UserProfile {
   String id;
   String name;
   String email;
-  String userType; // 'staff', 'student', 'guest'
+  String userType;
   double walletBalance;
   List<Booking> bookings;
+  List<Transaction> transactions; // <--- NEW FIELD
 
   UserProfile({
     required this.id,
@@ -188,6 +204,7 @@ class UserProfile {
     required this.userType,
     required this.walletBalance,
     required this.bookings,
+    required this.transactions, // <--- NEW REQUIREMENT
   });
 }
 
@@ -305,12 +322,16 @@ List<Station> mockStations = [
 
 // Global User State (Starts empty, populated on Login)
 UserProfile currentUser = UserProfile(
-  id: '',
-  name: '',
-  email: '',
-  userType: '',
-  walletBalance: 0.0,
+  id: 'U001',
+  name: 'Manipal User',
+  email: 'user@mahe.ac.in',
+  userType: 'student',
+  walletBalance: 450.0,
   bookings: [],
+  transactions: [
+    Transaction(id: 'T1', title: 'Added Money', date: DateTime.now().subtract(const Duration(days: 1)), amount: 500, isCredit: true),
+    Transaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
+  ],
 );
 
 // --- LOGIN SCREEN ---
@@ -327,13 +348,35 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passController = TextEditingController();
 
   void _login() {
-    // Basic validation
+    // 1. Basic validation
     if (_idController.text.isEmpty || _passController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter ID and password')),
       );
       return;
     }
+
+    // --- NEW: SMART EMAIL CHECK ---
+    String inputText = _idController.text.trim();
+    String finalEmail;
+
+    if (inputText.contains('@')) {
+      // If user typed a full email, check the domain
+      if (!inputText.toLowerCase().endsWith('@learner.manipal.edu')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only @learner.manipal.edu emails are allowed'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return; // Stop the login process
+      }
+      finalEmail = inputText;
+    } else {
+      // If user typed just an ID, append the domain automatically
+      finalEmail = '$inputText@learner.manipal.edu';
+    }
+    // ------------------------------
 
     setState(() => _isLoading = true);
 
@@ -344,7 +387,7 @@ class _LoginScreenState extends State<LoginScreen> {
         currentUser = UserProfile(
           id: _idController.text,
           name: 'Manipal User',
-          email: '${_idController.text}@learner.manipal.edu',
+          email: finalEmail, // <--- UPDATED THIS to use the checked email
           userType: 'student',
           walletBalance: 450.0,
           bookings: [
@@ -356,6 +399,22 @@ class _LoginScreenState extends State<LoginScreen> {
               cost: 120.50,
               status: 'completed',
             )
+          ],
+          transactions: [
+            Transaction(
+                id: 'T1',
+                title: 'Wallet Top-up',
+                date: DateTime.now().subtract(const Duration(days: 5)),
+                amount: 500.0,
+                isCredit: true
+            ),
+            Transaction(
+                id: 'T2',
+                title: 'EV Charge - MIT Quad',
+                date: DateTime.now().subtract(const Duration(days: 2)),
+                amount: 120.50,
+                isCredit: false
+            ),
           ],
         );
 
@@ -379,6 +438,7 @@ class _LoginScreenState extends State<LoginScreen> {
           userType: 'guest',
           walletBalance: 100.0, // Free credits for testing
           bookings: [],
+          transactions: [],
         );
 
         Navigator.pushReplacement(
@@ -547,6 +607,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _isLoading = false;
 
   void _handleSignUp() {
+    // 1. Basic empty check
     if (_nameController.text.isEmpty || _emailController.text.isEmpty || _idController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields')),
@@ -554,21 +615,32 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
 
+    // 2. NEW: Email Domain Check
+    if (!_emailController.text.toLowerCase().endsWith('@learner.manipal.edu')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Only @learner.manipal.edu emails are allowed'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
+    // ... rest of your existing logic (Future.delayed, etc.) ...
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
-        // Create new user
         currentUser = UserProfile(
           id: _idController.text,
           name: _nameController.text,
           email: _emailController.text,
           userType: 'student',
-          walletBalance: 0.0, // New users start empty
+          walletBalance: 0.0,
           bookings: [],
+          transactions: [],
         );
 
-        // Clear stack and go to main
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => const MainNavigation()),
@@ -710,14 +782,12 @@ class _MainNavigationState extends State<MainNavigation> {
 // --- HOME SCREEN ---
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _filterType = 'all'; // 'all', 'available', 'fast'
-
+  String _filterType = 'all';
   List<Station> get filteredStations {
     if (_filterType == 'all') return mockStations;
     if (_filterType == 'available') return mockStations.where((s) => s.availablePorts > 0).toList();
@@ -734,50 +804,37 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Nearby Stations', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen()));
-            },
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NotificationsScreen())),
             icon: Stack(
               children: [
                 const Icon(Icons.notifications_outlined),
                 if (hasUnread)
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                      constraints: const BoxConstraints(minWidth: 8, minHeight: 8),
-                    ),
-                  ),
+                  Positioned(right: 0, top: 0, child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), constraints: const BoxConstraints(minWidth: 8, minHeight: 8))),
               ],
             ),
           ),
         ],
       ),
+      // --- NEW: QR SCANNER BUTTON ---
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const QRScanScreen())),
+        backgroundColor: const Color(0xFF00796B),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.qr_code_scanner),
+        label: const Text("Scan QR"),
+      ),
+      // -----------------------------
       body: Column(
         children: [
-          // Quick Stats Header
+          // Quick Stats
           Container(
             padding: const EdgeInsets.all(16),
             color: const Color(0xFF00796B),
             child: Row(
               children: [
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.ev_station,
-                    value: '${mockStations.fold(0, (sum, s) => sum + s.availablePorts)}',
-                    label: 'Available Ports',
-                  ),
-                ),
+                Expanded(child: _StatCard(icon: Icons.ev_station, value: '${mockStations.fold(0, (sum, s) => sum + s.availablePorts)}', label: 'Available Ports')),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.local_parking,
-                    value: '${mockStations.fold(0, (sum, s) => sum + s.availableParking)}',
-                    label: 'Parking Spots',
-                  ),
-                ),
+                Expanded(child: _StatCard(icon: Icons.local_parking, value: '${mockStations.fold(0, (sum, s) => sum + s.availableParking)}', label: 'Parking Spots')),
               ],
             ),
           ),
@@ -786,30 +843,18 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                _FilterChip(
-                  label: 'All',
-                  selected: _filterType == 'all',
-                  onTap: () => setState(() => _filterType = 'all'),
-                ),
+                _FilterChip(label: 'All', selected: _filterType == 'all', onTap: () => setState(() => _filterType = 'all')),
                 const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Available',
-                  selected: _filterType == 'available',
-                  onTap: () => setState(() => _filterType = 'available'),
-                ),
+                _FilterChip(label: 'Available', selected: _filterType == 'available', onTap: () => setState(() => _filterType = 'available')),
                 const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Fast Charging',
-                  selected: _filterType == 'fast',
-                  onTap: () => setState(() => _filterType = 'fast'),
-                ),
+                _FilterChip(label: 'Fast Charging', selected: _filterType == 'fast', onTap: () => setState(() => _filterType = 'fast')),
               ],
             ),
           ),
-          // Station List
+          // List
           Expanded(
             child: filteredStations.isEmpty
-                ? const Center(child: Text("No stations found for this filter."))
+                ? const Center(child: Text("No stations found."))
                 : ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: filteredStations.length,
@@ -978,15 +1023,45 @@ class StationCard extends StatelessWidget {
 }
 
 // --- MAP VIEW SCREEN ---
-class MapViewScreen extends StatelessWidget {
+class MapViewScreen extends StatefulWidget {
   const MapViewScreen({super.key});
+
+  @override
+  State<MapViewScreen> createState() => _MapViewScreenState();
+}
+
+class _MapViewScreenState extends State<MapViewScreen> {
+  // State variable to track if location is enabled
+  bool _showUserLocation = false;
+
+  // Function to simulate asking for permission
+  void _askLocationPermission() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Use Location?"),
+        content: const Text("MAHE EV Charging needs access to your location to show nearby stations."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Deny")),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() => _showUserLocation = true); // Turn on the blue dot
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location enabled")));
+            },
+            child: const Text("Allow"),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Stack(
         children: [
-          // Simulated Map Background
+          // 1. Simulated Map Background (YOUR ORIGINAL CODE KEPT INTACT)
           Container(
             color: const Color(0xFFE1E6EA),
             child: Stack(
@@ -999,13 +1074,15 @@ class MapViewScreen extends StatelessWidget {
               ],
             ),
           ),
-          // Stations Markers
+
+          // 2. Stations Markers (YOUR ORIGINAL LOGIC KEPT INTACT)
           ...mockStations.map((station) {
             return Positioned(
               left: MediaQuery.of(context).size.width * station.mapX,
               top: MediaQuery.of(context).size.height * station.mapY,
               child: GestureDetector(
                 onTap: () {
+                  // KEEPING YOUR DETAILED BOTTOM SHEET
                   showModalBottomSheet(
                     context: context,
                     builder: (c) => Container(
@@ -1081,7 +1158,9 @@ class MapViewScreen extends StatelessWidget {
                       ),
                       child: const Icon(Icons.ev_station, color: Colors.white, size: 20),
                     ),
+                    // Added a tiny label below the icon for better visibility
                     Container(
+                      margin: const EdgeInsets.only(top: 4),
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
                       child: Text(station.name.split(' ').first, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
@@ -1091,22 +1170,41 @@ class MapViewScreen extends StatelessWidget {
               ),
             );
           }),
-          // Center Indicator
-          Positioned(
-            top: MediaQuery.of(context).size.height * 0.5,
-            left: MediaQuery.of(context).size.width * 0.5,
-            child: Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.3),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.blue, width: 2),
+
+          // 3. (NEW) USER LOCATION DOT - Only shows if permission granted
+          if (_showUserLocation)
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.5,
+              left: MediaQuery.of(context).size.width * 0.5,
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 3),
+                  boxShadow: [BoxShadow(color: Colors.blue.withValues(alpha: 0.4), blurRadius: 10, spreadRadius: 5)],
+                ),
               ),
-              child: const Icon(Icons.navigation, color: Colors.blue, size: 12),
+            )
+          else
+          // If location OFF, show the old static center crosshair
+            Positioned(
+              top: MediaQuery.of(context).size.height * 0.5,
+              left: MediaQuery.of(context).size.width * 0.5,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.3),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.blue, width: 2),
+                ),
+                child: const Icon(Icons.navigation, color: Colors.blue, size: 12),
+              ),
             ),
-          ),
-          // Search Bar
+
+          // 4. Search Bar (YOUR ORIGINAL CODE)
           Positioned(
             top: 50,
             left: 16,
@@ -1123,6 +1221,18 @@ class MapViewScreen extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+          ),
+
+          // 5. (NEW) LOCATE ME BUTTON - Bottom Right Corner
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: FloatingActionButton(
+              heroTag: "btn_locate", // Unique tag to prevent errors
+              onPressed: _askLocationPermission,
+              backgroundColor: Colors.white,
+              child: const Icon(Icons.my_location, color: Colors.black87),
             ),
           ),
         ],
@@ -1691,152 +1801,177 @@ class _BookingCard extends StatelessWidget {
 }
 
 // --- WALLET SCREEN ---
+// --- WALLET SCREEN (FIXED SPACING) ---
 class WalletScreen extends StatelessWidget {
   const WalletScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Campus Wallet', style: TextStyle(fontWeight: FontWeight.bold))),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(32),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF00796B), Color(0xFF004D40)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
+    // We use StatefulBuilder so the Balance updates on the screen immediately
+    return StatefulBuilder(
+        builder: (context, setState) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Campus Wallet', style: TextStyle(fontWeight: FontWeight.bold))),
+            body: SingleChildScrollView(
               child: Column(
                 children: [
-                  const Icon(Icons.account_balance_wallet, size: 60, color: Colors.white),
-                  const SizedBox(height: 16),
-                  const Text('Available Balance', style: TextStyle(color: Colors.white70, fontSize: 16)),
-                  const SizedBox(height: 8),
-                  Text('₹ ${currentUser.walletBalance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          _showAddMoneyDialog(context);
-                        },
-                        icon: const Icon(Icons.add),
-                        label: const Text("Add Money"),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF00796B)),
+                  // 1. Balance Card (KEPT ORIGINAL UI)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(32),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF00796B), Color(0xFF004D40)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _QuickInfoCard(
-                      icon: Icons.savings_outlined,
-                      title: 'Total Saved',
-                      value: '₹120',
-                      subtitle: 'vs Third-party apps',
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.account_balance_wallet, size: 60, color: Colors.white),
+                        const SizedBox(height: 16),
+                        const Text('Available Balance', style: TextStyle(color: Colors.white70, fontSize: 16)),
+                        const SizedBox(height: 8),
+                        Text(
+                            '₹ ${currentUser.walletBalance.toStringAsFixed(2)}',
+                            style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.white)
+                        ),
+                        const SizedBox(height: 24),
+                        ElevatedButton.icon(
+                          // Pass 'setState' so the dialog can update the screen
+                          onPressed: () => _showAddMoneyDialog(context, setState),
+                          icon: const Icon(Icons.add),
+                          label: const Text("Add Money"),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xFF00796B)
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _QuickInfoCard(
-                      icon: Icons.eco_outlined,
-                      title: 'CO₂ Saved',
-                      value: '45 kg',
-                      subtitle: 'Using solar power',
+                  const SizedBox(height: 16),
+
+                  // 2. Info Cards (KEPT ORIGINAL UI)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        Expanded(child: _QuickInfoCard(icon: Icons.savings_outlined, title: 'Total Saved', value: '₹120', subtitle: 'vs Third-party apps')),
+                        const SizedBox(width: 12),
+                        Expanded(child: _QuickInfoCard(icon: Icons.eco_outlined, title: 'CO₂ Saved', value: '45 kg', subtitle: 'Using solar power')),
+                      ],
                     ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 3. Quick Add Section (FIXED SPACING)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('Quick Add', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Wrap(
+                      // INCREASED SPACING HERE
+                      spacing: 16,
+                      runSpacing: 16,
+                      alignment: WrapAlignment.start, // Aligns them nicely to the left
+                      children: [
+                        _QuickAddChip(amount: 100, onTap: () => _processAddMoney(context, setState, 100)),
+                        _QuickAddChip(amount: 200, onTap: () => _processAddMoney(context, setState, 200)),
+                        _QuickAddChip(amount: 500, onTap: () => _processAddMoney(context, setState, 500)),
+                        _QuickAddChip(amount: 1000, onTap: () => _processAddMoney(context, setState, 1000)),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // 4. FUNCTIONAL LINKS (KEPT ORIGINAL UI)
+                  ListTile(
+                    leading: const Icon(Icons.receipt_long_outlined),
+                    title: const Text('Transaction History'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const TransactionHistoryScreen()));
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.credit_card),
+                    title: const Text('Linked ICICI Bank Account'),
+                    subtitle: const Text('••••1234'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => const BankDetailsScreen()));
+                    },
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Quick Add', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 12,
-                children: [
-                  _QuickAddChip(amount: 100, onTap: () => _addMoney(context, 100)),
-                  _QuickAddChip(amount: 200, onTap: () => _addMoney(context, 200)),
-                  _QuickAddChip(amount: 500, onTap: () => _addMoney(context, 500)),
-                  _QuickAddChip(amount: 1000, onTap: () => _addMoney(context, 1000)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            ListTile(
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: const Text('Transaction History'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-            ListTile(
-              leading: const Icon(Icons.credit_card),
-              title: const Text('Linked ICICI Bank Account'),
-              subtitle: const Text('••••1234'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {},
-            ),
-          ],
-        ),
-      ),
+          );
+        }
     );
   }
 
-  void _showAddMoneyDialog(BuildContext context) {
+  void _showAddMoneyDialog(BuildContext context, StateSetter setState) {
     final controller = TextEditingController();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add Money'),
         content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Amount',
-            prefixText: '₹ ',
-            border: OutlineInputBorder(),
-          ),
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Amount', prefixText: '₹ ', border: OutlineInputBorder())
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              final amount = double.tryParse(controller.text) ?? 0;
-              if (amount > 0) {
-                _addMoney(context, amount);
-              }
-            },
-            child: const Text('Add'),
+              onPressed: () {
+                final val = double.tryParse(controller.text) ?? 0;
+                if (val > 0) {
+                  // FIXED: Close dialog FIRST, then add money
+                  Navigator.pop(context);
+                  _processAddMoney(context, setState, val);
+                }
+              },
+              child: const Text('Add')
           ),
         ],
       ),
     );
   }
 
-  void _addMoney(BuildContext context, double amount) {
+  // FIXED LOGIC: Does not contain Navigator.pop(), so it's safe for Quick Add chips
+  void _processAddMoney(BuildContext context, StateSetter setState, double amount) {
+    // 1. Update Global State
     currentUser.walletBalance += amount;
-    Navigator.pop(context);
+
+    // 2. Add Fake Transaction
+    currentUser.transactions.insert(0, Transaction(
+        id: "ADD${DateTime.now().millisecondsSinceEpoch}",
+        title: "Wallet Top-up",
+        date: DateTime.now(),
+        amount: amount,
+        isCredit: true
+    ));
+
+    // 3. Update Local UI State
+    setState(() {});
+
+    // 4. Show Feedback
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('₹$amount added successfully via ICICI Bank')),
+        SnackBar(
+          content: Text('₹${amount.toStringAsFixed(0)} added successfully'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 1),
+        )
     );
   }
 }
@@ -2139,7 +2274,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           final n = notifications[index];
-          final isDark = Theme.of(context).brightness == Brightness.dark;
 
           return Card(
             elevation: 0,
@@ -2338,6 +2472,187 @@ class AboutScreen extends StatelessWidget {
             const Spacer(),
             const Text('© 2025 MAHE Manipal', style: TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// 1. QR SCANNER SCREEN (Simulated Camera - FIXED)
+class QRScanScreen extends StatefulWidget {
+  const QRScanScreen({super.key});
+  @override
+  State<QRScanScreen> createState() => _QRScanScreenState();
+}
+
+class _QRScanScreenState extends State<QRScanScreen> {
+  bool _scanning = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _startScanSimulation();
+  }
+
+  void _startScanSimulation() async {
+    // Simulate finding a code after 2 seconds
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) {
+      setState(() => _scanning = false);
+      _showSuccessDialog();
+    }
+  }
+
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("QR Code Detected"),
+        content: const Text("Station: MIT Quadrangle\nID: #001"),
+        actions: [
+          // FIXED: Now properly closes scanner and goes back
+          TextButton(
+              onPressed: () {
+                Navigator.pop(context); // Close dialog
+                Navigator.pop(context); // Close scanner screen
+              },
+              child: const Text("Cancel")
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              // Go to charging screen (using first mock station)
+              Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => ChargingScreen(station: mockStations[0]))
+              );
+            },
+            child: const Text("Start Charging"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      // FIXED: Added SafeArea to prevent notch overlap (This fixes the frozen button)
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: Container(
+                width: double.infinity, height: double.infinity,
+                color: Colors.grey.shade900,
+                child: const Center(child: Text("Camera View", style: TextStyle(color: Colors.white54))),
+              ),
+            ),
+            Center(
+              child: Container(
+                width: 250, height: 250,
+                decoration: BoxDecoration(
+                  border: Border.all(color: _scanning ? Colors.green : Colors.white, width: 2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: _scanning
+                    ? const Center(child: CircularProgressIndicator(color: Colors.green))
+                    : const Icon(Icons.check_circle, color: Colors.green, size: 60),
+              ),
+            ),
+            // FIXED: 'X' Button is now visible, has a background, and is tappable
+            Positioned(
+                top: 20,
+                left: 20,
+                child: CircleAvatar(
+                  backgroundColor: Colors.black54,
+                  radius: 20,
+                  child: IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                      onPressed: () => Navigator.pop(context)
+                  ),
+                )
+            ),
+            const Positioned(
+                bottom: 80,
+                left: 0,
+                right: 0,
+                child: Text(
+                    "Align QR code within frame",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontSize: 16)
+                )
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// 2. TRANSACTION HISTORY SCREEN
+class TransactionHistoryScreen extends StatelessWidget {
+  const TransactionHistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Transactions")),
+      body: ListView.separated(
+        itemCount: currentUser.transactions.length,
+        separatorBuilder: (_, __) => const Divider(),
+        itemBuilder: (context, index) {
+          final t = currentUser.transactions[index];
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: t.isCredit ? Colors.green.shade50 : Colors.red.shade50,
+              child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.red),
+            ),
+            title: Text(t.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text("${t.date.day}/${t.date.month}/${t.date.year}"),
+            trailing: Text(
+              "${t.isCredit ? '+' : '-'} ₹${t.amount.toStringAsFixed(0)}",
+              style: TextStyle(fontWeight: FontWeight.bold, color: t.isCredit ? Colors.green : Colors.red, fontSize: 16),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// 3. BANK DETAILS SCREEN
+class BankDetailsScreen extends StatelessWidget {
+  const BankDetailsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Linked Bank Account")),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Card(
+              color: const Color(0xFF053c6d), // ICICI Corporate Blue
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [Text("ICICI BANK", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), Icon(Icons.contactless, color: Colors.white)]),
+                  const SizedBox(height: 30),
+                  const Text("**** **** **** 1234", style: TextStyle(color: Colors.white, fontSize: 22, letterSpacing: 2)),
+                  const SizedBox(height: 20),
+                  Text("ARIHANT K", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            ListTile(title: const Text("Set as Primary Method"), trailing: Switch(value: true, onChanged: (v) {})),
+            ListTile(title: const Text("Unlink Account"), textColor: Colors.red, onTap: () {}),
           ],
         ),
       ),
