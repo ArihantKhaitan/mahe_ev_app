@@ -224,7 +224,30 @@ class AppNotification {
   });
 }
 
+class ReportedIssue {
+  final String id;
+  final String stationName;
+  final String reportedBy;
+  final String issueType;
+  final DateTime time;
+  final String status; // 'Pending', 'Resolved'
+
+  ReportedIssue({
+    required this.id,
+    required this.stationName,
+    required this.reportedBy,
+    required this.issueType,
+    required this.time,
+    this.status = 'Pending',
+  });
+}
+
 // --- MOCK DATA ---
+
+List<ReportedIssue> mockIssues = [
+  ReportedIssue(id: 'I1', stationName: 'MIT Quadrangle', reportedBy: 'Rahul S.', issueType: 'Connector Damaged', time: DateTime.now().subtract(const Duration(hours: 2))),
+  ReportedIssue(id: 'I2', stationName: 'NLH EV Point', reportedBy: 'Prof. Anjali', issueType: 'Payment Failed', time: DateTime.now().subtract(const Duration(days: 1))),
+];
 
 // Initial Notifications
 List<AppNotification> mockNotifications = [
@@ -2597,7 +2620,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
   }
 }
 
-// 2. TRANSACTION HISTORY SCREEN
+// 2. TRANSACTION HISTORY SCREEN (Corrected)
 class TransactionHistoryScreen extends StatelessWidget {
   const TransactionHistoryScreen({super.key});
 
@@ -2612,6 +2635,7 @@ class TransactionHistoryScreen extends StatelessWidget {
           final t = currentUser.transactions[index];
           return ListTile(
             leading: CircleAvatar(
+              // USE .withValues(alpha: 0.2)
               backgroundColor: t.isCredit
                   ? Colors.green.withValues(alpha: 0.2)
                   : Colors.red.withValues(alpha: 0.2),
@@ -2904,7 +2928,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
 //              ADMIN ZONE 🛠️
 // ==========================================
 
-// --- 1. ADMIN NAVIGATION CONTAINER (Matches User UI) ---
+// --- 1. ADMIN NAVIGATION CONTAINER ---
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
 
@@ -2965,12 +2989,99 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 }
 
-// --- 2. ADMIN HOME (Stats & Quick Actions) ---
-class AdminHomeScreen extends StatelessWidget {
+// --- 2. ADMIN HOME (Editable Stations + Issue Tracking) ---
+class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
 
   @override
+  State<AdminHomeScreen> createState() => _AdminHomeScreenState();
+}
+
+class _AdminHomeScreenState extends State<AdminHomeScreen> {
+
+  // Edit Dialog logic
+  void _showEditDialog(Station s) {
+    final nameController = TextEditingController(text: s.name);
+    final priceController = TextEditingController(text: s.pricePerUnit.toString());
+    final parkController = TextEditingController(text: s.parkingSpaces.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text("Edit Station Details", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
+            TextField(controller: priceController, style: const TextStyle(color: Colors.white), keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Price (₹/kWh)", labelStyle: TextStyle(color: Colors.grey))),
+            TextField(controller: parkController, style: const TextStyle(color: Colors.white), keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Total Parking Spots", labelStyle: TextStyle(color: Colors.grey))),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            onPressed: () {
+              setState(() {
+                // Find and update the station in the global list
+                int index = mockStations.indexOf(s);
+                if (index != -1) {
+                  mockStations[index] = Station(
+                    id: s.id, name: nameController.text, location: s.location, distance: s.distance, isFastCharger: s.isFastCharger, totalPorts: s.totalPorts,
+                    availablePorts: s.availablePorts, isSharedPower: s.isSharedPower, isSolarPowered: s.isSolarPowered, mapX: s.mapX, mapY: s.mapY,
+                    parkingSpaces: int.tryParse(parkController.text) ?? s.parkingSpaces,
+                    availableParking: s.availableParking,
+                    pricePerUnit: double.tryParse(priceController.text) ?? s.pricePerUnit,
+                  );
+                }
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station details updated!")));
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show specific issues for a station
+  void _showStationIssues(List<ReportedIssue> stationIssues) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Reported Issues", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            ...stationIssues.map((issue) => ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.warning, color: Colors.redAccent),
+              title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
+              subtitle: Text("By: ${issue.reportedBy} • ${_timeAgo(issue.time)}", style: const TextStyle(color: Colors.grey)),
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _timeAgo(DateTime d) {
+    Duration diff = DateTime.now().difference(d);
+    if (diff.inHours > 0) return "${diff.inHours}h ago";
+    return "${diff.inMinutes}m ago";
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Count total issues for the dashboard header
+    int totalIssues = mockIssues.length;
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -2986,31 +3097,73 @@ class AdminHomeScreen extends StatelessWidget {
             children: [
               Expanded(child: _AdminStatCard(icon: Icons.ev_station, value: '${mockStations.length}', label: 'Active Chargers', color: Colors.blue)),
               const SizedBox(width: 12),
-              Expanded(child: _AdminStatCard(icon: Icons.warning_amber_rounded, value: '0', label: 'Issues Reported', color: Colors.orange)),
+              Expanded(child: _AdminStatCard(icon: Icons.warning_amber_rounded, value: '$totalIssues', label: 'Total Issues', color: totalIssues > 0 ? Colors.red : Colors.orange)),
             ],
           ),
           const SizedBox(height: 24),
           const Text("Live Station List", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
           const SizedBox(height: 12),
+
           // List of Chargers
-          ...mockStations.map((s) => Card(
-            color: const Color(0xFF2C2C2C),
-            child: ListTile(
-              leading: Icon(Icons.ev_station, color: s.availablePorts > 0 ? Colors.greenAccent : Colors.redAccent),
-              title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-              subtitle: Text("${s.location} • ₹${s.pricePerUnit}/kWh", style: const TextStyle(color: Colors.white70)),
-              trailing: const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
-              onTap: () {
-                // Open Full Details Inspector directly from Home
-                showModalBottomSheet(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (c) => _StationInspectorSheet(station: s),
-                );
-              },
-            ),
-          )),
+          ...mockStations.map((s) {
+            // Check for issues specific to this station
+            List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == s.name).toList();
+            bool hasIssues = stationIssues.isNotEmpty;
+
+            return Card(
+              color: const Color(0xFF2C2C2C),
+              margin: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                onTap: () => _showEditDialog(s), // TAP CARD TO EDIT
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.ev_station, color: s.availablePorts > 0 ? Colors.greenAccent : Colors.redAccent),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                                const SizedBox(height: 4),
+                                Text("${s.location} • ${s.parkingSpaces} Spots", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                Text("Price: ₹${s.pricePerUnit}/kWh", style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          // Edit Icon
+                          const Icon(Icons.edit, color: Colors.grey, size: 20),
+                        ],
+                      ),
+                      const Divider(color: Colors.white10),
+                      // Issue Section
+                      InkWell(
+                        onTap: hasIssues ? () => _showStationIssues(stationIssues) : null, // CLICK TO SEE ISSUES
+                        child: Row(
+                          children: [
+                            Icon(hasIssues ? Icons.error_outline : Icons.check_circle_outline,
+                                color: hasIssues ? Colors.redAccent : Colors.green, size: 16),
+                            const SizedBox(width: 8),
+                            Text(
+                              hasIssues ? "${stationIssues.length} Issues Reported" : "0 Issues",
+                              style: TextStyle(color: hasIssues ? Colors.redAccent : Colors.green, fontWeight: FontWeight.bold),
+                            ),
+                            const Spacer(),
+                            if(hasIssues)
+                              const Text("View Details >", style: TextStyle(color: Colors.grey, fontSize: 10)),
+                          ],
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -3037,7 +3190,7 @@ class _AdminStatCard extends StatelessWidget {
   }
 }
 
-// --- 3. ADMIN MAP (Click to Add + Full Details) ---
+// --- 3. ADMIN MAP (Click to Add + Full Inspector + Edit) ---
 class AdminMapScreen extends StatefulWidget {
   const AdminMapScreen({super.key});
   @override
@@ -3102,6 +3255,16 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     );
   }
 
+  // Open the detailed Inspector
+  void _openStationInspector(Station s) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _StationInspectorSheet(station: s, onUpdate: () => setState(() {})),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -3137,15 +3300,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
               left: MediaQuery.of(context).size.width * station.mapX,
               top: MediaQuery.of(context).size.height * station.mapY,
               child: GestureDetector(
-                onTap: () {
-                  // Show FULL details when clicking map pin
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (c) => _StationInspectorSheet(station: station),
-                  );
-                },
+                onTap: () => _openStationInspector(station),
                 child: Column(
                   children: [
                     const Icon(Icons.location_on, color: Colors.redAccent, size: 40),
@@ -3177,15 +3332,89 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
   }
 }
 
-// --- SHARED: STATION INSPECTOR SHEET (Used by Map & Home) ---
-class _StationInspectorSheet extends StatelessWidget {
+// --- SHARED: STATION INSPECTOR SHEET (The "Details" View + EDIT Logic) ---
+class _StationInspectorSheet extends StatefulWidget {
   final Station station;
-  const _StationInspectorSheet({required this.station});
+  final VoidCallback onUpdate;
+  const _StationInspectorSheet({required this.station, required this.onUpdate});
+
+  @override
+  State<_StationInspectorSheet> createState() => _StationInspectorSheetState();
+}
+
+class _StationInspectorSheetState extends State<_StationInspectorSheet> {
+
+  // Show Edit Dialog
+  void _showEditDialog() {
+    final nameController = TextEditingController(text: widget.station.name);
+    final priceController = TextEditingController(text: widget.station.pricePerUnit.toString());
+    final spotsController = TextEditingController(text: widget.station.parkingSpaces.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text("Edit Details", style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Name", labelStyle: TextStyle(color: Colors.grey))),
+            const SizedBox(height: 10),
+            TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price", labelStyle: TextStyle(color: Colors.grey))),
+            const SizedBox(height: 10),
+            TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey))),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                int idx = mockStations.indexOf(widget.station);
+                if (idx != -1) {
+                  mockStations[idx] = Station(
+                    id: widget.station.id,
+                    name: nameController.text,
+                    location: widget.station.location,
+                    distance: widget.station.distance,
+                    isFastCharger: widget.station.isFastCharger,
+                    totalPorts: widget.station.totalPorts,
+                    availablePorts: widget.station.availablePorts,
+                    isSharedPower: widget.station.isSharedPower,
+                    isSolarPowered: widget.station.isSolarPowered,
+                    mapX: widget.station.mapX,
+                    mapY: widget.station.mapY,
+                    parkingSpaces: int.tryParse(spotsController.text) ?? 5,
+                    availableParking: widget.station.availableParking,
+                    pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
+                  );
+                }
+              });
+              widget.onUpdate(); // Refresh parent
+              Navigator.pop(context);
+            },
+            child: const Text("Save"),
+          )
+        ],
+      ),
+    );
+  }
+
+  void _deleteStation() {
+    mockStations.removeWhere((s) => s.id == widget.station.id);
+    widget.onUpdate();
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Deleted")));
+  }
 
   @override
   Widget build(BuildContext context) {
+    Station currentStation = mockStations.firstWhere((s) => s.id == widget.station.id, orElse: () => widget.station);
+    List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == currentStation.name).toList();
+    bool hasIssues = stationIssues.isNotEmpty;
+
     return Container(
-      height: MediaQuery.of(context).size.height * 0.6,
+      height: MediaQuery.of(context).size.height * 0.55,
       decoration: const BoxDecoration(
         color: Color(0xFF1E1E1E),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -3197,43 +3426,42 @@ class _StationInspectorSheet extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Expanded(child: Text(station.name, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
-              const Chip(label: Text("ACTIVE", style: TextStyle(color: Colors.white, fontSize: 10)), backgroundColor: Colors.green),
+              Expanded(child: Text(currentStation.name, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(color: hasIssues ? Colors.redAccent : Colors.green, borderRadius: BorderRadius.circular(12)),
+                child: Text(hasIssues ? "${stationIssues.length} ISSUES" : "ACTIVE", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
-          Text(station.location, style: const TextStyle(color: Colors.grey)),
+          Text(currentStation.location, style: const TextStyle(color: Colors.grey)),
           const SizedBox(height: 20),
           Row(
             children: [
-              Expanded(child: _buildStat("Price", "₹${station.pricePerUnit}", Icons.currency_rupee, Colors.blue)),
+              Expanded(child: _buildStat("Price", "₹${currentStation.pricePerUnit}", Icons.currency_rupee, Colors.blue)),
               const SizedBox(width: 8),
-              Expanded(child: _buildStat("Slots", "${station.availableParking}", Icons.local_parking, Colors.orange)),
+              Expanded(child: _buildStat("Spots", "${currentStation.parkingSpaces}", Icons.local_parking, Colors.orange)),
               const SizedBox(width: 8),
-              Expanded(child: _buildStat("Type", station.isFastCharger ? "Fast" : "Slow", Icons.ev_station, Colors.purple)),
+              Expanded(child: _buildStat("Type", currentStation.isFastCharger ? "Fast" : "Slow", Icons.ev_station, Colors.purple)),
             ],
           ),
-          const SizedBox(height: 20),
-          const Text("Admin Controls", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
+          const SizedBox(height: 24),
+          const Text("Actions", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () { /* Simulate Maintenance */ Navigator.pop(context); },
-                  icon: const Icon(Icons.build, color: Colors.orange),
-                  label: const Text("Maintenance", style: TextStyle(color: Colors.orange)),
-                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.orange)),
+                child: ElevatedButton.icon(
+                  onPressed: _showEditDialog,
+                  icon: const Icon(Icons.edit), label: const Text("Edit Details"),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    // Delete Logic would go here
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  label: const Text("Delete", style: TextStyle(color: Colors.red)),
+                  onPressed: _deleteStation,
+                  icon: const Icon(Icons.delete, color: Colors.red), label: const Text("Delete", style: TextStyle(color: Colors.red)),
                   style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
                 ),
               ),
@@ -3247,19 +3475,13 @@ class _StationInspectorSheet extends StatelessWidget {
   Widget _buildStat(String label, String val, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(12)),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 20),
-          Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-          Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10)),
-        ],
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+      child: Column(children: [Icon(icon, color: color, size: 20), Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold)), Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10))]),
     );
   }
 }
 
-// --- 4. ADMIN USERS SCREEN (Replaces Bookings) ---
+// --- 4. ADMIN USERS SCREEN ---
 class AdminUsersScreen extends StatelessWidget {
   const AdminUsersScreen({super.key});
 
@@ -3293,7 +3515,6 @@ class AdminUsersScreen extends StatelessWidget {
         subtitle: Text("$type • $status", style: const TextStyle(color: Colors.white54)),
         trailing: const Icon(Icons.chevron_right, color: Colors.grey),
         onTap: () {
-          // Show User Details Bottom Sheet (Simulated)
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Viewing data for $name")));
         },
       ),
@@ -3306,6 +3527,7 @@ class AdminTransactionMonitor extends StatelessWidget {
   const AdminTransactionMonitor({super.key});
   @override
   Widget build(BuildContext context) {
+    // Calculates Total Revenue from Charging (excludes credits)
     double totalRevenue = allGlobalTransactions.where((t) => !t.isCredit).fold(0, (sum, t) => sum + t.amount);
 
     return Scaffold(
@@ -3333,7 +3555,7 @@ class AdminTransactionMonitor extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text("₹${totalRevenue.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
-                const Text("Does not include wallet top-ups", style: TextStyle(color: Colors.white24, fontSize: 10)),
+                const Text("From all charging sessions", style: TextStyle(color: Colors.white24, fontSize: 10)),
               ],
             ),
           ),
@@ -3362,7 +3584,7 @@ class AdminTransactionMonitor extends StatelessWidget {
   }
 }
 
-// --- 6. ADMIN PROFILE (Admin Details) ---
+// --- 6. ADMIN PROFILE (Bank Settings Only) ---
 class AdminProfileScreen extends StatelessWidget {
   const AdminProfileScreen({super.key});
 
