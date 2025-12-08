@@ -2,7 +2,9 @@
 
 A smart campus mobility solution designed for the **Manipal Academy of Higher Education (MAHE)**. This application streamlines the experience of finding, booking, and paying for electric vehicle charging stations across the campus.
 
-![App Banner](assets/app_icon.png)
+<p align="center">
+  <img src="assets/app_icon.png" width="150" height="150" alt="MAHE EV Logo">
+</p>
 
 ## 📱 About The Project
 
