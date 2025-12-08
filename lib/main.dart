@@ -1241,10 +1241,70 @@ class StationDetailScreen extends StatefulWidget {
 class _StationDetailScreenState extends State<StationDetailScreen> {
   String _selectedSlot = 'now';
 
+  // --- REPORT ISSUE LOGIC ---
+  void _showReportDialog() {
+    final noteController = TextEditingController();
+    String selectedIssue = "Charger not working";
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text("Report Issue"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("What seems to be the problem?", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const SizedBox(height: 12),
+                  DropdownButton<String>(
+                    value: selectedIssue,
+                    isExpanded: true,
+                    items: ["Charger not working", "Payment Issue", "Parking Blocked", "Screen Broken", "Other"]
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    onChanged: (v) => setDialogState(() => selectedIssue = v!),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: noteController,
+                    decoration: const InputDecoration(labelText: "Details (Optional)", border: OutlineInputBorder()),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                    onPressed: () {
+                      setState(() {
+                        mockIssues.add(ReportedIssue(
+                            id: "REP_${DateTime.now().millisecondsSinceEpoch}",
+                            stationName: widget.station.name,
+                            reportedBy: currentUser.name,
+                            issueType: selectedIssue,
+                            time: DateTime.now()
+                        ));
+                      });
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Issue Reported. Admin notified.")));
+                    },
+                    child: const Text("Report")
+                ),
+              ],
+            );
+          }
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.station.name)),
+      appBar: AppBar(
+        title: Text(widget.station.name),
+        // Removed actions[] block here to remove top-right button
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -1354,6 +1414,17 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 child: const Text('Book Slot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
+
+            // --- CLEAN REPORT BUTTON AT BOTTOM ---
+            const SizedBox(height: 16),
+            Center(
+              child: TextButton.icon(
+                onPressed: _showReportDialog,
+                icon: const Icon(Icons.flag_outlined, size: 18, color: Colors.grey),
+                label: const Text("Report an Issue with this Station", style: TextStyle(color: Colors.grey)),
+              ),
+            ),
+            const SizedBox(height: 30),
           ],
         ),
       ),
