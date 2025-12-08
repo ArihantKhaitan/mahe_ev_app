@@ -3,6 +3,7 @@
 A smart campus mobility solution designed for the **Manipal Academy of Higher Education (MAHE)**. This application streamlines the experience of finding, booking, and paying for electric vehicle charging stations across the campus.
 
 ![App Banner](assets/banner.png)
+
 ## 📱 About The Project
 
 **MAHE EV Charging** is a cross-platform mobile application built with **Flutter**. It addresses the growing need for EV infrastructure management on campus by allowing students, staff, and visitors to seamlessly manage their EV charging needs.
@@ -11,14 +12,17 @@ The app features a simulation mode that demonstrates the entire user journey—f
 
 ## ✨ Key Features
 
-* **🔐 User Roles:** Secure login for Staff/Students and a "Continue as Guest" mode for visitors.
-* **🗺️ Station Locator:** Interactive map and list views to find charging stations (e.g., MIT Quadrangle, KMC Staff Parking).
-* **🔋 Real-Time Availability:** Check available ports, parking spots, and charger types (Fast/Standard) instantly.
-* **📅 Slot Booking:** Reserve charging slots in advance with automatic cancellation refunds.
-* **⚡ Live Charging Simulation:** A real-time charging monitor that tracks units consumed (kWh), duration, and cost.
-* **💳 Campus Wallet:** Integrated wallet system to add money and handle payments with detailed bill breakdowns (Energy Charges + GST).
+* **🔐 Secure Access:** Strict signup validation restricted to **`@learner.manipal.edu`** emails for students/staff, plus a "Guest Mode" for visitors.
+* **📸 Smart QR Scanning:** Integrated QR code scanner simulation to instantly identify charging stations and start sessions.
+* **💳 Advanced Campus Wallet:**
+    * **Quick Add:** Load money instantly using preset chips.
+    * **Bank Integration:** Simulated linking with ICICI Bank for seamless fund transfers.
+    * **History:** Detailed transaction logs for all credits and debits.
+* **🗺️ Real-Time Navigation:** Interactive map with "Locate Me" functionality to visualize user position relative to charging hubs (MIT Quadrangle, KMC, etc.).
+* **🔋 Live Availability:** Check available ports, parking spots, and charger types (Fast/Standard) instantly.
+* **⚡ Charging Simulation:** A real-time charging monitor that tracks units consumed (kWh), duration, and dynamic cost calculation.
+* **💰 Smart Billing:** Auto-calculates Energy Charges + 5% GST and handles automatic refunds for booking cancellations.
 * **🌙 Dark Mode:** Fully supported dark theme for better visibility at night.
-* **🌱 Sustainability Stats:** Tracks CO₂ saved and money saved compared to fuel.
 
 ## 🛠️ Tech Stack
 
@@ -42,12 +46,12 @@ Follow these steps to get a local copy up and running.
 
 1.  **Clone the repository**
     ```bash
-    git clone [https://github.com/your-username/mahe_ev_project.git](https://github.com/your-username/mahe_ev_project.git)
+    git clone [https://github.com/ArihantKhaitan/mahe_ev_app.git](https://github.com/ArihantKhaitan/mahe_ev_app.git)
     ```
 
 2.  **Navigate to the project directory**
     ```bash
-    cd mahe_ev_project
+    cd mahe_ev_app
     ```
 
 3.  **Install dependencies**
@@ -62,10 +66,10 @@ Follow these steps to get a local copy up and running.
 
 ## 🔮 Future Scope
 
-* **Backend Integration:** Connect to Firebase or Node.js for real-time database management.
-* **IoT Integration:** Connect with physical charging stations via MQTT for actual hardware control.
-* **UPI Payment Gateway:** Integrate Razorpay or Stripe for real money transactions.
-* **Waitlist System:** Notify users when a specific station becomes available.
+* **Backend Integration:** Connect to Firebase or Node.js for persistent user data and station status.
+* **IoT Integration:** Connect with physical charging stations via MQTT for actual hardware control (Start/Stop).
+* **Live Payment Gateway:** Integrate Razorpay or Stripe for real money transactions replacing the simulation.
+* **Waitlist System:** Notify users when a specific busy station becomes available.
 
 ## 🤝 Contributing
 
