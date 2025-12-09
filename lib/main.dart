@@ -1140,9 +1140,16 @@ class StationCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            const Icon(Icons.location_on_outlined, size: 14, color: Colors.grey),
+                            Icon(Icons.location_on_outlined, size: 14, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6)),
                             const SizedBox(width: 4),
-                            Text('${station.location} • ${station.distance}km', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                            // Use a higher opacity/darker color for better visibility
+                            Text(
+                                '${station.location} • ${station.distance}km',
+                                style: TextStyle(
+                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8), // Darker/Clearer text
+                                    fontSize: 13
+                                )
+                            ),
                           ],
                         ),
                       ],
@@ -1564,7 +1571,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
               decoration: BoxDecoration(
                 color: Theme.of(context).cardTheme.color,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                border: Border.all(color: Colors.grey.withOpacity(0.2)),
               ),
               child: Column(
                 children: [
@@ -1579,8 +1586,26 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Estimated Cost', style: TextStyle(color: Colors.grey, fontSize: 13)),
-                      Text('₹${widget.station.pricePerUnit * 10}/hr', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                      // FIX: Use highly visible color based on theme for Estimated Cost Label
+                      Text(
+                          'Estimated Cost',
+                          style: TextStyle(
+                            fontSize: 14,
+                            // Use high contrast color (black87 for light, white70 for dark)
+                            color: Theme.of(context).brightness == Brightness.light ? Colors.black87 : Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          )
+                      ),
+                      // FIX: Use highly visible color based on theme for Estimated Cost Value
+                      Text(
+                          '₹${widget.station.pricePerUnit * 10}/hr',
+                          style: TextStyle(
+                            fontSize: 14,
+                            // Use high contrast color
+                            color: Theme.of(context).brightness == Brightness.light ? Colors.black87 : Colors.white70,
+                            fontWeight: FontWeight.bold,
+                          )
+                      ),
                     ],
                   ),
                 ],
@@ -1589,7 +1614,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
             const SizedBox(height: 24),
             SizedBox(
               width: double.infinity,
-              height: 50,
+              height: 56, // <--- INCREASED HEIGHT TO PREVENT CUTOFF (50 -> 56)
               child: ElevatedButton(
                 onPressed: widget.station.availablePorts > 0
                     ? () {
@@ -1606,6 +1631,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                   backgroundColor: const Color(0xFF00796B),
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 16), // Ensure vertical padding is consistent
                 ),
                 child: const Text('Book Slot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ),
@@ -2578,7 +2604,12 @@ class ProfileScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(currentUser.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                      Text(currentUser.email, style: TextStyle(color: Colors.grey.shade600)),
+                      Text(
+                          currentUser.email,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7) // Use a clearer, darker shade of the primary text color
+                          )
+                      ),
                       const SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -2606,7 +2637,14 @@ class ProfileScreen extends StatelessWidget {
           _SettingsTile(
               icon: Icons.directions_car_outlined,
               title: 'Vehicle Management',
-              trailing: Text('${currentUser.vehicles.length} vehicles'),
+              // Use a noticeable color for the count text
+              trailing: Text(
+                  '${currentUser.vehicles.length} vehicles',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary // Use the MAHE Teal color
+                  )
+              ),
               onTap: () {
                 Navigator.push(context, MaterialPageRoute(builder: (context) => const VehicleScreen()));
               }
