@@ -1521,53 +1521,73 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text("Report Issue"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("What seems to be the problem?", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  const SizedBox(height: 12),
-                  DropdownButton<String>(
-                    value: selectedIssue,
-                    isExpanded: true,
-                    items: ["Charger not working", "Payment Issue", "Parking Blocked", "Screen Broken", "Other"]
-                        .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                    onChanged: (v) => setDialogState(() => selectedIssue = v!),
+      builder: (context) =>
+          StatefulBuilder(
+              builder: (context, setDialogState) {
+                return AlertDialog(
+                  title: const Text("Report Issue"),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("What seems to be the problem?",
+                          style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      const SizedBox(height: 12),
+                      DropdownButton<String>(
+                        value: selectedIssue,
+                        isExpanded: true,
+                        items: [
+                          "Charger not working",
+                          "Payment Issue",
+                          "Parking Blocked",
+                          "Screen Broken",
+                          "Other"
+                        ]
+                            .map((e) =>
+                            DropdownMenuItem(value: e, child: Text(e)))
+                            .toList(),
+                        onChanged: (v) =>
+                            setDialogState(() => selectedIssue = v!),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: noteController,
+                        decoration: const InputDecoration(
+                            labelText: "Details (Optional)",
+                            border: OutlineInputBorder()),
+                        maxLines: 2,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: noteController,
-                    decoration: const InputDecoration(labelText: "Details (Optional)", border: OutlineInputBorder()),
-                    maxLines: 2,
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-                    onPressed: () {
-                      setState(() {
-                        mockIssues.add(ReportedIssue(
-                            id: "REP_${DateTime.now().millisecondsSinceEpoch}",
-                            stationName: widget.station.name,
-                            reportedBy: currentUser.name,
-                            issueType: selectedIssue,
-                            time: DateTime.now()
-                        ));
-                      });
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Issue Reported. Admin notified.")));
-                    },
-                    child: const Text("Report")
-                ),
-              ],
-            );
-          }
-      ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context),
+                        child: const Text("Cancel")),
+                    ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white),
+                        onPressed: () {
+                          setState(() {
+                            mockIssues.add(ReportedIssue(
+                                id: "REP_${DateTime
+                                    .now()
+                                    .millisecondsSinceEpoch}",
+                                stationName: widget.station.name,
+                                reportedBy: currentUser.name,
+                                issueType: selectedIssue,
+                                time: DateTime.now()
+                            ));
+                          });
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text(
+                                  "Issue Reported. Admin notified.")));
+                        },
+                        child: const Text("Report")
+                    ),
+                  ],
+                );
+              }
+          ),
     );
   }
 
@@ -1596,8 +1616,10 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                   children: const [
                     Icon(Icons.solar_power, size: 40, color: Color(0xFF00796B)),
                     SizedBox(height: 8),
-                    Text('Solar Powered Station', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
-                    Text('Zero GST • Clean Energy', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    Text('Solar Powered Station', style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
+                    Text('Zero GST • Clean Energy',
+                        style: TextStyle(fontSize: 12, color: Colors.black54)),
                   ],
                 ),
               ),
@@ -1609,7 +1631,8 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 onPressed: () {
                   _launchMapsUrl(widget.station.name);
                   ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Opening maps to ${widget.station.location}...'))
+                      SnackBar(content: Text(
+                          'Opening maps to ${widget.station.location}...'))
                   );
                 },
                 icon: const Icon(Icons.near_me_outlined),
@@ -1617,7 +1640,8 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF00796B),
                   side: const BorderSide(color: Color(0xFF00796B)),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
@@ -1627,42 +1651,73 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
             const SizedBox(height: 24),
             Row(
               children: [
-                Expanded(child: _InfoBox(title: 'Output', value: widget.station.isSharedPower ? '30 kW' : '60 kW', color: Colors.orange, icon: Icons.bolt)),
+                Expanded(child: _InfoBox(title: 'Output',
+                    value: widget.station.isSharedPower ? '30 kW' : '60 kW',
+                    color: Colors.orange,
+                    icon: Icons.bolt)),
                 const SizedBox(width: 12),
-                Expanded(child: _InfoBox(title: 'Ports', value: '${widget.station.availablePorts}/${widget.station.totalPorts}', color: Colors.blue, icon: Icons.ev_station)),
+                Expanded(child: _InfoBox(title: 'Ports',
+                    value: '${widget.station.availablePorts}/${widget.station
+                        .totalPorts}',
+                    color: Colors.blue,
+                    icon: Icons.ev_station)),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               children: [
-                Expanded(child: _InfoBox(title: 'Parking', value: '${widget.station.availableParking}/${widget.station.parkingSpaces}', color: Colors.green, icon: Icons.local_parking)),
+                Expanded(child: _InfoBox(title: 'Parking',
+                    value: '${widget.station.availableParking}/${widget.station
+                        .parkingSpaces}',
+                    color: Colors.green,
+                    icon: Icons.local_parking)),
                 const SizedBox(width: 12),
-                Expanded(child: _InfoBox(title: 'Price', value: '₹${widget.station.pricePerUnit}/kWh', color: const Color(0xFF00796B), icon: Icons.currency_rupee)),
+                Expanded(child: _InfoBox(title: 'Price',
+                    value: '₹${widget.station.pricePerUnit}/kWh',
+                    color: const Color(0xFF00796B),
+                    icon: Icons.currency_rupee)),
               ],
             ),
             if (widget.station.isSharedPower)
               const Padding(
                 padding: EdgeInsets.only(top: 8.0),
-                child: Text('* Power split when multiple vehicles charging', style: TextStyle(color: Colors.orange, fontSize: 12)),
+                child: Text('* Power split when multiple vehicles charging',
+                    style: TextStyle(color: Colors.orange, fontSize: 12)),
               ),
             const SizedBox(height: 24),
-            const Text('Select Time Slot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Select Time Slot',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                _TimeSlotChip(label: "Now", value: "now", selected: _selectedSlot == "now", onTap: () => setState(() => _selectedSlot = "now")),
-                _TimeSlotChip(label: "10:30 AM", value: "10:30", selected: _selectedSlot == "10:30", onTap: () => setState(() => _selectedSlot = "10:30")),
-                _TimeSlotChip(label: "11:00 AM", value: "11:00", selected: _selectedSlot == "11:00", onTap: () => setState(() => _selectedSlot = "11:00")),
-                _TimeSlotChip(label: "12:00 PM", value: "12:00", selected: _selectedSlot == "12:00", onTap: () => setState(() => _selectedSlot = "12:00")),
+                _TimeSlotChip(label: "Now",
+                    value: "now",
+                    selected: _selectedSlot == "now",
+                    onTap: () => setState(() => _selectedSlot = "now")),
+                _TimeSlotChip(label: "10:30 AM",
+                    value: "10:30",
+                    selected: _selectedSlot == "10:30",
+                    onTap: () => setState(() => _selectedSlot = "10:30")),
+                _TimeSlotChip(label: "11:00 AM",
+                    value: "11:00",
+                    selected: _selectedSlot == "11:00",
+                    onTap: () => setState(() => _selectedSlot = "11:00")),
+                _TimeSlotChip(label: "12:00 PM",
+                    value: "12:00",
+                    selected: _selectedSlot == "12:00",
+                    onTap: () => setState(() => _selectedSlot = "12:00")),
               ],
             ),
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Theme.of(context).cardTheme.color,
+                color: Theme
+                    .of(context)
+                    .cardTheme
+                    .color,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.grey.withOpacity(0.2)),
               ),
@@ -1671,8 +1726,10 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: const [
-                      Text('Booking Fee (Refundable)', style: TextStyle(fontWeight: FontWeight.w500)),
-                      Text('₹50', style: TextStyle(fontWeight: FontWeight.bold)),
+                      Text('Booking Fee (Refundable)',
+                          style: TextStyle(fontWeight: FontWeight.w500)),
+                      Text(
+                          '₹50', style: TextStyle(fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const Divider(height: 20),
@@ -1685,7 +1742,11 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                           style: TextStyle(
                             fontSize: 14,
                             // Use high contrast color (black87 for light, white70 for dark)
-                            color: Theme.of(context).brightness == Brightness.light ? Colors.black87 : Colors.white70,
+                            color: Theme
+                                .of(context)
+                                .brightness == Brightness.light
+                                ? Colors.black87
+                                : Colors.white70,
                             fontWeight: FontWeight.w500,
                           )
                       ),
@@ -1695,7 +1756,11 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                           style: TextStyle(
                             fontSize: 14,
                             // Use high contrast color
-                            color: Theme.of(context).brightness == Brightness.light ? Colors.black87 : Colors.white70,
+                            color: Theme
+                                .of(context)
+                                .brightness == Brightness.light
+                                ? Colors.black87
+                                : Colors.white70,
                             fontWeight: FontWeight.bold,
                           )
                       ),
@@ -1713,7 +1778,8 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                     ? () {
                   if (currentUser.walletBalance < 50) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Insufficient balance. Please add money to wallet.')),
+                      const SnackBar(content: Text(
+                          'Insufficient balance. Please add money to wallet.')),
                     );
                     return;
                   }
@@ -1723,10 +1789,13 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00796B),
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(vertical: 16), // Ensure vertical padding is consistent
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 16), // Ensure vertical padding is consistent
                 ),
-                child: const Text('Book Slot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                child: const Text('Book Slot', style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
               ),
             ),
 
@@ -1735,8 +1804,10 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
             Center(
               child: TextButton.icon(
                 onPressed: _showReportDialog,
-                icon: const Icon(Icons.flag_outlined, size: 18, color: Colors.grey),
-                label: const Text("Report an Issue with this Station", style: TextStyle(color: Colors.grey)),
+                icon: const Icon(
+                    Icons.flag_outlined, size: 18, color: Colors.grey),
+                label: const Text("Report an Issue with this Station",
+                    style: TextStyle(color: Colors.grey)),
               ),
             ),
             const SizedBox(height: 30),
@@ -1747,80 +1818,110 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
   }
 
   void _showBookingConfirmation(BuildContext context) {
-    // Action button logic will be separated.
+    // --- CRITICAL FIX: CHECK FOR ACTIVE SESSION ---
+    final hasActiveSession = currentUser.bookings.any((b) =>
+    b.status == 'active');
+
+    if (hasActiveSession) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'You already have an active charging session. Please stop it before starting a new one.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    // ----------------------------------------------
+
     String bookingStatus = _selectedSlot == "now" ? "active" : "reserved";
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Booking'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Station: ${widget.station.name}'),
-            Text('Time: ${_selectedSlot == "now" ? "Start Now" : _selectedSlot}'),
-            const SizedBox(height: 8),
-            const Text('Booking fee of ₹50 will be deducted.', style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const Text('Refundable if cancelled within 10 mins.', style: TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              // 1. DEDUCT FEE & CREATE BOOKING
-              setState(() {
-                currentUser.walletBalance -= 50;
+      builder: (context) =>
+          AlertDialog(
+            title: const Text('Confirm Booking'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Station: ${widget.station.name}'),
+                Text('Time: ${_selectedSlot == "now"
+                    ? "Start Now"
+                    : _selectedSlot}'),
+                const SizedBox(height: 8),
+                const Text('Booking fee of ₹50 will be deducted.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Text('Refundable if cancelled within 10 mins.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () {
+                  // 1. DEDUCT FEE & CREATE BOOKING
+                  setState(() {
+                    currentUser.walletBalance -= 50;
 
-                // Only decrement available ports if starting NOW.
-                // Reserved slots do not occupy a port yet.
-                if (bookingStatus == 'active') {
-                  widget.station.availablePorts -= 1;
-                }
+                    // Only decrement available ports if starting NOW.
+                    if (bookingStatus == 'active') {
+                      widget.station.availablePorts -= 1;
+                    }
 
-                currentUser.bookings.add(Booking(
-                  id: 'B${DateTime.now().millisecondsSinceEpoch}',
-                  stationId: widget.station.id,
-                  stationName: widget.station.name,
-                  bookingTime: DateTime.now(),
-                  cost: 50,
-                  status: bookingStatus, // 'active' or 'reserved'
-                ));
-              });
+                    currentUser.bookings.add(Booking(
+                      id: 'B${DateTime
+                          .now()
+                          .millisecondsSinceEpoch}',
+                      stationId: widget.station.id,
+                      stationName: widget.station.name,
+                      bookingTime: DateTime.now(),
+                      cost: 50,
+                      status: bookingStatus, // 'active' or 'reserved'
+                    ));
+                  });
 
-              // --- DISPATCH NOTIFICATION (THE FIX) ---
-              globalNotificationManager.addNotification(
-                title: 'Booking Confirmed!',
-                body: '$bookingStatus slot reserved for ${widget.station.name}.',
-                read: false,
-              );
+                  // --- DISPATCH NOTIFICATION (THE FIX) ---
+                  globalNotificationManager.addNotification(
+                    title: 'Booking Confirmed!',
+                    body: '${bookingStatus == 'active'
+                        ? 'Active'
+                        : 'Reserved'} slot secured at ${widget.station.name}.',
+                    read: false,
+                  );
+                  // ---------------------------------------
 
-              Navigator.pop(context); // Close dialog
+                  Navigator.pop(context); // Close dialog
 
-              if (bookingStatus == 'active') {
-                // Navigate to Charging Screen (Immediate Start)
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (context) => ChargingScreen(station: widget.station)),
-                );
-              } else {
-                // Navigate to Main Navigation (Bookings Tab)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Slot successfully reserved! Check Bookings tab.')),
-                );
-                // Push back to root, user will naturally see or click the Bookings tab.
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (context) => const MainNavigation()),
-                      (route) => false,
-                );
-              }
-            },
-            child: Text(bookingStatus == 'active' ? 'Start Charging' : 'Confirm Reservation'),
+                  if (bookingStatus == 'active') {
+                    // Navigate to Charging Screen (Immediate Start)
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) =>
+                          ChargingScreen(station: widget.station)),
+                    );
+                  } else {
+                    // Navigate to Main Navigation (Bookings Tab)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text(
+                          'Slot successfully reserved! Check Bookings tab.')),
+                    );
+                    // Push back to root, user will naturally see or click the Bookings tab.
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const MainNavigation()),
+                          (route) => false,
+                    );
+                  }
+                },
+                child: Text(bookingStatus == 'active'
+                    ? 'Start Charging'
+                    : 'Confirm Reservation'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 }
@@ -1891,9 +1992,7 @@ class ChargingScreen extends StatefulWidget {
 }
 
 // --- CHARGING SCREEN (UPDATED with Pause/Resume and Charge Limit) ---
-// --- CHARGING SCREEN (FIXED: Safe Exit if No Vehicle) ---
-// --- CHARGING SCREEN (FINAL PREMIUM VISUALIZATION INTEGRATED) ---
-class _ChargingScreenState extends State<ChargingScreen> {
+class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStateMixin { // <--- ADDED TickerProviderStateMixin
   Timer? _timer;
   double _cost = 0.0;
   double _unitsConsumed = 0.0;
@@ -1903,6 +2002,9 @@ class _ChargingScreenState extends State<ChargingScreen> {
   // State for control and visualization
   bool _isPaused = false;
   double _chargeLimit = 0.0;
+
+  // Animation controller for the pulse effect
+  late AnimationController _pulseController; // <--- ADDED CONTROLLER
 
   // Safely find the primary vehicle once
   final Vehicle? _chargingVehicle = currentUser.vehicles
@@ -1920,13 +2022,17 @@ class _ChargingScreenState extends State<ChargingScreen> {
     super.initState();
     _startTime = DateTime.now();
 
-    // --- SAFE EXIT LOGIC ---
+    // Initialize Animation Controller
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(); // <--- START LOOPING
+
     if (_chargingVehicle == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-                'Cannot start charging. Please add a primary EV in Profile > Vehicles.'),
+            content: Text('Cannot start charging. Please add a primary EV in Profile > Vehicles.'),
             duration: Duration(seconds: 3),
             backgroundColor: Colors.red,
           ),
@@ -1935,9 +2041,7 @@ class _ChargingScreenState extends State<ChargingScreen> {
       });
       return;
     }
-    // ----------------------------
 
-    // Initialize charging parameters only if vehicle is present
     _maxKWh = _chargingVehicle!.batteryCapacityKWh;
     _startKWh = _maxKWh * (_chargingVehicle!.initialSOCPercent / 100);
     _unitsConsumed = 0.0;
@@ -1970,10 +2074,9 @@ class _ChargingScreenState extends State<ChargingScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _pulseController.dispose(); // <--- DISPOSE CONTROLLER
     super.dispose();
   }
-
-  // --- NEW HELPER METHODS FOR PREMIUM VISUALIZATION ---
 
   Color _getStateColor() {
     if (_currentSOC >= 100) {
@@ -2169,7 +2272,6 @@ class _ChargingScreenState extends State<ChargingScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             children: [
-              // --- START REPLACEMENT BLOCK (Expanded Content) ---
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
@@ -2177,7 +2279,7 @@ class _ChargingScreenState extends State<ChargingScreen> {
                     children: [
                       const SizedBox(height: 20),
 
-                      // --- PREMIUM CHARGING VISUALIZATION ---
+                      // --- PREMIUM CHARGING VISUALIZATION (USING CONTROLLER) ---
                       SizedBox(
                         width: 280,
                         height: 280,
@@ -2224,18 +2326,17 @@ class _ChargingScreenState extends State<ChargingScreen> {
                                 curve: Curves.easeOutCubic,
                                 tween: Tween<double>(
                                   begin: 0,
-                                  end: _currentSOC / 100,
+                                  end: _currentSOC / 100, // Uses current state of charge
                                 ),
-                                builder: (context, value, child) =>
-                                    CircularProgressIndicator(
-                                      value: value,
-                                      strokeWidth: 16,
-                                      backgroundColor: Colors.transparent,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        _getStateColor(),
-                                      ),
-                                      strokeCap: StrokeCap.round,
-                                    ),
+                                builder: (context, value, child) => CircularProgressIndicator(
+                                  value: value,
+                                  strokeWidth: 16,
+                                  backgroundColor: Colors.transparent,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    _getStateColor(),
+                                  ),
+                                  strokeCap: StrokeCap.round,
+                                ),
                               ),
                             ),
 
@@ -2261,17 +2362,16 @@ class _ChargingScreenState extends State<ChargingScreen> {
                               children: [
                                 // SOC Percentage with premium styling
                                 ShaderMask(
-                                  shaderCallback: (bounds) =>
-                                      LinearGradient(
-                                        colors: [
-                                          Colors.white,
-                                          _getStateColor(),
-                                        ],
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                      ).createShader(bounds),
+                                  shaderCallback: (bounds) => LinearGradient(
+                                    colors: [
+                                      Colors.white,
+                                      _getStateColor(),
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  ).createShader(bounds),
                                   child: Text(
-                                    '$_currentSOC%',
+                                    '$_currentSOC%', // Uses current state of charge
                                     style: const TextStyle(
                                       fontSize: 80,
                                       fontWeight: FontWeight.w800,
@@ -2311,6 +2411,26 @@ class _ChargingScreenState extends State<ChargingScreen> {
                               ],
                             ),
 
+                            // Animated pulse effect (only when charging, not when complete)
+                            if (!_isPaused && _currentSOC < 100)
+                              AnimatedBuilder( // <--- USING ANIMATED BUILDER WITH CONTROLLER
+                                animation: _pulseController,
+                                builder: (context, child) {
+                                  return Container(
+                                    width: 260 + (_pulseController.value * 20),
+                                    height: 260 + (_pulseController.value * 20),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: _getStateColor()
+                                            .withOpacity(0.4 * (1 - _pulseController.value)),
+                                        width: 2,
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+
                             // Success checkmark animation when complete
                             if (_currentSOC >= 100)
                               Positioned(
@@ -2326,8 +2446,7 @@ class _ChargingScreenState extends State<ChargingScreen> {
                                         width: 60,
                                         height: 60,
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFF00FF88)
-                                              .withOpacity(0.2),
+                                          color: const Color(0xFF00FF88).withOpacity(0.2),
                                           shape: BoxShape.circle,
                                         ),
                                         child: const Icon(
