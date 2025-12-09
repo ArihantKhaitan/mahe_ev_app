@@ -252,8 +252,10 @@ class Vehicle {
   final String make;
   final String model;
   final String licensePlate;
-  final String connectorType; // e.g., 'CCS Type 2', 'Type 2 AC', 'CHAdeMO'
+  final String connectorType;
   final bool isPrimary;
+  final double batteryCapacityKWh; // <--- NEW FIELD
+  final int initialSOCPercent;    // <--- NEW FIELD
 
   Vehicle({
     required this.id,
@@ -262,6 +264,8 @@ class Vehicle {
     required this.licensePlate,
     required this.connectorType,
     this.isPrimary = false,
+    this.batteryCapacityKWh = 30.0, // Default to a small EV battery size
+    this.initialSOCPercent = 20,    // Default starting SOC for session simulation
   });
 }
 
@@ -276,6 +280,8 @@ List<Vehicle> mockVehicles = [
     licensePlate: 'KA 01 EV 1234',
     connectorType: 'CCS Type 2',
     isPrimary: true,
+    batteryCapacityKWh: 30.2,
+    initialSOCPercent: 30,
   ),
   Vehicle(
     id: 'V2',
@@ -283,6 +289,9 @@ List<Vehicle> mockVehicles = [
     model: 'ZS EV',
     licensePlate: 'KA 01 MG 0077',
     connectorType: 'Type 2 AC',
+    isPrimary: false,
+    batteryCapacityKWh: 44.5,
+    initialSOCPercent: 50,
   ),
 ];
 
@@ -460,10 +469,30 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+// --- FIX: _continueAsGuest() to include mock vehicles ---
   void _continueAsGuest() {
     setState(() => _isLoading = true);
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
+        // Create a mutable copy of mockVehicles list for the guest
+        List<Vehicle> guestMockVehicles = List.of(mockVehicles);
+
+        // Ensure the first one in the mock list is set as primary for the guest session
+        // Since it's a new list, we can safely overwrite its properties
+        if (guestMockVehicles.isNotEmpty) {
+          final firstVehicle = guestMockVehicles[0];
+          guestMockVehicles[0] = Vehicle(
+            id: firstVehicle.id,
+            make: firstVehicle.make,
+            model: firstVehicle.model,
+            licensePlate: firstVehicle.licensePlate,
+            connectorType: firstVehicle.connectorType,
+            batteryCapacityKWh: firstVehicle.batteryCapacityKWh,
+            initialSOCPercent: firstVehicle.initialSOCPercent,
+            isPrimary: true, // Set as primary for the session
+          );
+        }
+
         currentUser = UserProfile(
           id: 'GUEST',
           name: 'Guest User',
@@ -472,7 +501,8 @@ class _LoginScreenState extends State<LoginScreen> {
           walletBalance: 100.0,
           bookings: [],
           transactions: [],
-          vehicles: const [], // Added
+          // Use the mutable copy of the mock vehicles
+          vehicles: guestMockVehicles,
         );
         Navigator.pushReplacement(
           context,
@@ -1001,7 +1031,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 16),
                 Text(
                     _filterType == 'compatible' && primaryVehicleName != null
-                        ? 'No ${primaryVehicleName} Compatible stations found.'
+                        ? 'No $primaryVehicleName Compatible stations found.'
                         : 'No stations found.',
                     style: const TextStyle(fontSize: 18, color: Colors.grey)
                 ),
@@ -1709,6 +1739,7 @@ class ChargingScreen extends StatefulWidget {
 }
 
 // --- CHARGING SCREEN (UPDATED with Pause/Resume and Charge Limit) ---
+// --- CHARGING SCREEN (FIXED: Safe Exit if No Vehicle) ---
 class _ChargingScreenState extends State<ChargingScreen> {
   Timer? _timer;
   double _cost = 0.0;
@@ -1716,28 +1747,66 @@ class _ChargingScreenState extends State<ChargingScreen> {
   bool _active = true;
   DateTime? _startTime;
 
-  // --- NEW STATE FIELDS FOR CONTROL ---
+  // State for control and visualization
   bool _isPaused = false;
-  double _chargeLimit = 0.0; // 0.0 means no limit is set (i.e., charge to full)
-  // ------------------------------------
+  double _chargeLimit = 0.0;
+
+  // Safely find the primary vehicle once
+  final Vehicle? _chargingVehicle = currentUser.vehicles.where((v) => v.isPrimary).isNotEmpty
+      ? currentUser.vehicles.firstWhere((v) => v.isPrimary)
+      : (currentUser.vehicles.isNotEmpty ? currentUser.vehicles.first : null);
+
+  double _startKWh = 0.0;
+  double _maxKWh = 0.0;
+  int _currentSOC = 0;
 
   @override
   void initState() {
     super.initState();
     _startTime = DateTime.now();
+
+    // --- SAFE EXIT LOGIC (NEW) ---
+    if (_chargingVehicle == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        // Show a helpful message and pop the screen safely
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot start charging. Please add a primary EV in Profile > Vehicles.'),
+            duration: Duration(seconds: 3),
+            backgroundColor: Colors.red,
+          ),
+        );
+        Navigator.pop(context);
+      });
+      return; // Stop initialization if no vehicle is present
+    }
+    // ----------------------------
+
+    // Initialize charging parameters only if vehicle is present
+    _maxKWh = _chargingVehicle.batteryCapacityKWh;
+    _startKWh = _maxKWh * (_chargingVehicle.initialSOCPercent / 100);
+    _unitsConsumed = 0.0;
+    _currentSOC = _chargingVehicle.initialSOCPercent;
+    _chargeLimit = _maxKWh; // Default limit is 100% (full battery)
+
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (mounted && _active && !_isPaused) {
         setState(() {
-          // Check if limit is set AND about to be exceeded
-          if (_chargeLimit > 0.0 && (_unitsConsumed + 0.01) >= _chargeLimit) {
-            _unitsConsumed = _chargeLimit; // Clamp to the limit
+          double newUnitsConsumed = _unitsConsumed + 0.1; // 0.1 kWh/sec
+
+          double totalKWh = _startKWh + newUnitsConsumed;
+
+          if (totalKWh >= _chargeLimit) {
+            _unitsConsumed = _chargeLimit - _startKWh;
+            _currentSOC = 100;
             _cost = _unitsConsumed * widget.station.pricePerUnit;
-            _stopCharging(limitReached: true); // Stop charging automatically
-          } else {
-            // Normal charging continues
-            _unitsConsumed += 0.01; // 0.01 kWh per second (36 kWh/hr simulation)
-            _cost = _unitsConsumed * widget.station.pricePerUnit;
+            _stopCharging(limitReached: true);
+            return;
           }
+
+          _unitsConsumed = newUnitsConsumed;
+          _cost = _unitsConsumed * widget.station.pricePerUnit;
+          _currentSOC = ((totalKWh / _maxKWh) * 100).round();
         });
       }
     });
@@ -1749,10 +1818,10 @@ class _ChargingScreenState extends State<ChargingScreen> {
     super.dispose();
   }
 
-  // --- NEW CONTROL LOGIC METHODS ---
+  // --- CONTROL LOGIC METHODS (Unchanged from previous turn) ---
 
   void _togglePause() {
-    if (!_active) return; // Cannot pause if session is already stopped
+    if (!_active) return;
     setState(() {
       _isPaused = !_isPaused;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1762,7 +1831,7 @@ class _ChargingScreenState extends State<ChargingScreen> {
   }
 
   void _showChargeLimitDialog() {
-    final controller = TextEditingController(text: _chargeLimit > 0.0 ? _chargeLimit.toStringAsFixed(1) : '');
+    final controller = TextEditingController(text: _chargeLimit < _maxKWh ? _chargeLimit.toStringAsFixed(1) : '');
 
     showDialog(
       context: context,
@@ -1771,29 +1840,32 @@ class _ChargingScreenState extends State<ChargingScreen> {
         content: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Energy Limit (kWh)', hintText: 'e.g., 20.0', border: OutlineInputBorder())
+            decoration: InputDecoration(
+                labelText: 'Energy Limit (kWh) [Max: ${_maxKWh.toStringAsFixed(1)} kWh]',
+                hintText: 'e.g., 20.0',
+                border: const OutlineInputBorder()
+            )
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
               onPressed: () {
                 final val = double.tryParse(controller.text) ?? 0;
-                if (val > _unitsConsumed) {
+                if (val > 0.0 && val <= _maxKWh) {
                   setState(() => _chargeLimit = val);
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Charge limit set to ${val.toStringAsFixed(1)} kWh')),
                   );
-                } else if (val > 0.0) {
-                  // If new limit is less than or equal to current consumption, stop immediately
-                  Navigator.pop(context);
-                  _stopCharging(limitReached: true);
+                } else if (val > _maxKWh) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Limit cannot exceed max capacity (${_maxKWh.toStringAsFixed(1)} kWh)')),
+                  );
                 } else {
-                  // User entered 0 or less, or invalid text
-                  setState(() => _chargeLimit = 0.0);
+                  setState(() => _chargeLimit = _maxKWh);
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Charge limit removed.')),
+                    const SnackBar(content: Text('Charge limit removed (Charging to 100%).')),
                   );
                 }
               },
@@ -1804,7 +1876,6 @@ class _ChargingScreenState extends State<ChargingScreen> {
     );
   }
 
-  // Unified method to stop charging and open payment dialog
   void _stopCharging({bool limitReached = false}) {
     if (!_active) return;
 
@@ -1819,26 +1890,39 @@ class _ChargingScreenState extends State<ChargingScreen> {
     _showPaymentDialog();
   }
 
-  // --- BUILD METHOD ---
+  // --- BUILD METHOD (Updated for Safe Exit) ---
 
   @override
   Widget build(BuildContext context) {
+    // Check if we exited early in initState (Vehicle == null).
+    // If _chargingVehicle is null, this widget tree will not be built and
+    // the app will have navigated back. But we still need a safe fallback.
+    if (_chargingVehicle == null) {
+      // This case should be rare, as initState should handle navigation, but it prevents crashes.
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: Text("Initializing...", style: TextStyle(color: Colors.white))),
+      );
+    }
+
+    // Normal build logic continues if vehicle is found
     final duration = _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF001F1A) : const Color(0xFF00796B),
       appBar: AppBar(
-        title: const Text("Active Charging"),
+        title: Text("Charging ${_chargingVehicle.make}"),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
         elevation: 0,
         actions: [
-          // NEW: Charge Limit Button
+          // Charge Limit Button
           IconButton(
-            icon: Icon(Icons.speed, color: _chargeLimit > 0.0 ? Colors.amberAccent : Colors.white),
-            tooltip: _chargeLimit > 0.0 ? 'Limit: ${_chargeLimit.toStringAsFixed(1)} kWh' : 'Set Charge Limit',
+            icon: Icon(Icons.speed, color: _chargeLimit < _maxKWh ? Colors.amberAccent : Colors.white),
+            tooltip: _chargeLimit < _maxKWh ? 'Limit: ${_chargeLimit.toStringAsFixed(1)} kWh' : 'Charging to 100%',
             onPressed: _active ? _showChargeLimitDialog : null,
           ),
         ],
@@ -1852,42 +1936,61 @@ class _ChargingScreenState extends State<ChargingScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Status Icon (Shows Pause/Limit Status)
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(30),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.05),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            _isPaused ? Icons.pause_circle_outline : Icons.flash_on,
-                            size: 80,
-                            color: _isPaused ? Colors.grey : Colors.amber,
-                          ),
-                        ),
-                        if (_chargeLimit > 0.0)
-                          Positioned(
-                            top: 0,
-                            right: 0,
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: const BoxDecoration(
-                                color: Colors.amber,
-                                shape: BoxShape.circle,
-                              ),
-                              child: Text(
-                                '${_chargeLimit.toStringAsFixed(0)}',
-                                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
-                              ),
+                    // --- CHARGING PROGRESS VISUALIZATION ---
+                    SizedBox(
+                      width: 180,
+                      height: 180,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // 1. Neon Circular Progress Indicator
+                          SizedBox(
+                            width: 180,
+                            height: 180,
+                            child: CircularProgressIndicator(
+                              value: _currentSOC / 100, // 0.0 to 1.0
+                              strokeWidth: 10,
+                              backgroundColor: Colors.white.withOpacity(0.1),
+                              color: _isPaused ? Colors.grey : Colors.cyanAccent, // Neon Color
                             ),
                           ),
-                      ],
+                          // 2. Inner Content
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                '$_currentSOC%',
+                                style: const TextStyle(
+                                  fontSize: 48,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.cyanAccent, // Neon Text
+                                  shadows: [
+                                    Shadow(color: Colors.cyan, blurRadius: 10.0), // Neon Glow
+                                  ],
+                                ),
+                              ),
+                              Text(
+                                _isPaused ? 'PAUSED' : 'CHARGING',
+                                style: TextStyle(
+                                  color: _isPaused ? Colors.grey : Colors.lightGreenAccent,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          // 3. Charging Bolt Indicator
+                          if (!_isPaused)
+                            const Positioned(
+                              top: 20,
+                              right: 20,
+                              child: Icon(Icons.flash_on, color: Colors.amber, size: 30),
+                            ),
+                        ],
+                      ),
                     ),
+                    // ----------------------------------------
                     const SizedBox(height: 30),
-                    const Text('LIVE METER', style: TextStyle(color: Colors.white54, fontSize: 14, letterSpacing: 2)),
+                    const Text('LIVE COST', style: TextStyle(color: Colors.white54, fontSize: 14, letterSpacing: 2)),
                     const SizedBox(height: 10),
                     Text(
                       '₹ ${_cost.toStringAsFixed(2)}',
@@ -1981,6 +2084,7 @@ class _ChargingScreenState extends State<ChargingScreen> {
     );
   }
 
+  // --- FIX: _showPaymentDialog to allow dismissal/return ---
   void _showPaymentDialog() {
     double gst = _cost * 0.05; // 5% GST
     double totalPayable = (_cost + gst) - 50; // Cost + GST - Booking Refund
@@ -1988,12 +2092,13 @@ class _ChargingScreenState extends State<ChargingScreen> {
 
     showDialog(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true, // <--- ALLOW TAPPING OUT TO DISMISS (FIX 1)
       builder: (context) => AlertDialog(
         title: const Text('Payment Summary'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // ... (Existing content remains the same)
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               const Text('Energy Charges:'),
               Text('₹${_cost.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -2016,8 +2121,43 @@ class _ChargingScreenState extends State<ChargingScreen> {
           ],
         ),
         actions: [
+          // RETURN/CANCEL BUTTON (FIX 2)
+          TextButton(
+              onPressed: () {
+                Navigator.pop(context); // Close the dialog
+                // Resume the charging session
+                _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+                  if (mounted && _active && !_isPaused) {
+                    // Re-apply the original timer logic inside the controller's scope
+                    setState(() {
+                      double newUnitsConsumed = _unitsConsumed + 0.1;
+
+                      double totalKWh = _startKWh + newUnitsConsumed;
+
+                      if (totalKWh >= _chargeLimit) {
+                        _unitsConsumed = _chargeLimit - _startKWh;
+                        _currentSOC = 100;
+                        _cost = _unitsConsumed * widget.station.pricePerUnit;
+                        _stopCharging(limitReached: true);
+                        return;
+                      }
+
+                      _unitsConsumed = newUnitsConsumed;
+                      _cost = _unitsConsumed * widget.station.pricePerUnit;
+                      _currentSOC = ((totalKWh / _maxKWh) * 100).round();
+                    });
+                  }
+                });
+                setState(() => _active = true); // Set charging back to active
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Charging resumed!'), duration: Duration(seconds: 1)));
+              },
+              child: const Text('Return to Charging')
+          ),
+
+          // PAY SECURELY BUTTON
           ElevatedButton(
             onPressed: () {
+              // ... (Existing payment logic remains the same)
               setState(() {
                 currentUser.walletBalance -= totalPayable;
                 widget.station.availablePorts += 1;
@@ -2037,7 +2177,6 @@ class _ChargingScreenState extends State<ChargingScreen> {
     );
   }
 }
-
 // --- BOOKINGS SCREEN ---
 class BookingsScreen extends StatelessWidget {
   const BookingsScreen({super.key});
@@ -4001,6 +4140,7 @@ class VehicleScreen extends StatefulWidget {
   State<VehicleScreen> createState() => _VehicleScreenState();
 }
 
+// --- NEW: VEHICLE MANAGEMENT SCREEN (CONFIRMED Delete Logic) ---
 class _VehicleScreenState extends State<VehicleScreen> {
   // Common connector types used in India (simplified list)
   final List<String> commonConnectors = const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T'];
@@ -4023,6 +4163,8 @@ class _VehicleScreenState extends State<VehicleScreen> {
                     model: v.model,
                     licensePlate: v.licensePlate,
                     connectorType: v.connectorType,
+                    batteryCapacityKWh: v.batteryCapacityKWh,
+                    initialSOCPercent: v.initialSOCPercent,
                     isPrimary: false,
                   );
                 }
@@ -4051,6 +4193,8 @@ class _VehicleScreenState extends State<VehicleScreen> {
               model: v.model,
               licensePlate: v.licensePlate,
               connectorType: v.connectorType,
+              batteryCapacityKWh: v.batteryCapacityKWh,
+              initialSOCPercent: v.initialSOCPercent,
               isPrimary: false,
             );
           }
@@ -4063,20 +4207,34 @@ class _VehicleScreenState extends State<VehicleScreen> {
           model: vehicle.model,
           licensePlate: vehicle.licensePlate,
           connectorType: vehicle.connectorType,
+          batteryCapacityKWh: vehicle.batteryCapacityKWh,
+          initialSOCPercent: vehicle.initialSOCPercent,
           isPrimary: true,
         );
       }
     });
   }
 
+  // --- DELETE LOGIC CONFIRMED ---
   void _deleteVehicle(String id) {
     setState(() {
       currentUser.vehicles.removeWhere((v) => v.id == id);
+      // Ensure there is always a primary if list is not empty
+      if (currentUser.vehicles.isNotEmpty && currentUser.vehicles.where((v) => v.isPrimary).isEmpty) {
+        // Set the first remaining vehicle as primary
+        final v = currentUser.vehicles.first;
+        currentUser.vehicles[0] = Vehicle(
+          id: v.id, make: v.make, model: v.model, licensePlate: v.licensePlate,
+          connectorType: v.connectorType, batteryCapacityKWh: v.batteryCapacityKWh,
+          initialSOCPercent: v.initialSOCPercent, isPrimary: true,
+        );
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vehicle removed.')),
       );
     });
   }
+  // ------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -4123,13 +4281,16 @@ class _VehicleScreenState extends State<VehicleScreen> {
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(v.licensePlate, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                  Text(v.licensePlate.isEmpty ? 'No Plate' : v.licensePlate, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                   const SizedBox(height: 4),
                   Row(
                     children: [
                       const Icon(Icons.bolt, size: 14, color: Colors.blue),
                       const SizedBox(width: 4),
                       Text(v.connectorType, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                      const SizedBox(width: 12),
+                      // Display Battery Capacity in subtitle
+                      Text('${v.batteryCapacityKWh.toStringAsFixed(1)} kWh', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
                     ],
                   ),
                 ],
@@ -4151,6 +4312,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
                       icon: const Icon(Icons.star_outline, color: Colors.orange),
                       onPressed: () => _togglePrimary(v),
                     ),
+                  // DELETE BUTTON CONFIRMED
                   IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
                     onPressed: () => _deleteVehicle(v.id),
@@ -4165,7 +4327,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
   }
 }
 
-// --- NEW: ADD VEHICLE DIALOG ---
+// --- NEW: ADD VEHICLE DIALOG (UPDATED for Battery Capacity) ---
 class _AddVehicleDialog extends StatefulWidget {
   final Function(Vehicle) onAdd;
   const _AddVehicleDialog({required this.onAdd});
@@ -4178,14 +4340,23 @@ class __AddVehicleDialogState extends State<_AddVehicleDialog> {
   final _makeController = TextEditingController();
   final _modelController = TextEditingController();
   final _plateController = TextEditingController();
+  final _capacityController = TextEditingController(text: '30.0'); // Default capacity
   String? _selectedConnector;
   bool _isPrimary = false;
 
   final List<String> commonConnectors = const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T', 'Other'];
 
+  // --- FIXED _handleSubmit for _AddVehicleDialog (Robust Validation) ---
   void _handleSubmit() {
-    if (_makeController.text.isEmpty || _modelController.text.isEmpty || _selectedConnector == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields.')));
+    final capacityText = _capacityController.text.trim();
+    final capacity = double.tryParse(capacityText);
+
+    // 1. Check for required fields (Make, Model, Connector, and a valid Capacity > 0)
+    if (_makeController.text.trim().isEmpty ||
+        _modelController.text.trim().isEmpty ||
+        _selectedConnector == null ||
+        capacity == null || capacity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields (Make, Model, Connector) and ensure Capacity is a valid number > 0.')));
       return;
     }
 
@@ -4195,7 +4366,10 @@ class __AddVehicleDialogState extends State<_AddVehicleDialog> {
       model: _modelController.text.trim(),
       licensePlate: _plateController.text.trim(),
       connectorType: _selectedConnector!,
-      isPrimary: _isPrimary || currentUser.vehicles.isEmpty, // Auto-set as primary if it's the first vehicle
+      batteryCapacityKWh: capacity,
+      initialSOCPercent: 20, // Default start
+      // If it's the first vehicle, it must be primary
+      isPrimary: _isPrimary || currentUser.vehicles.isEmpty,
     );
 
     widget.onAdd(newVehicle);
@@ -4215,6 +4389,8 @@ class __AddVehicleDialogState extends State<_AddVehicleDialog> {
             TextField(controller: _modelController, decoration: const InputDecoration(labelText: 'Model (e.g. Nexon EV)')),
             const SizedBox(height: 12),
             TextField(controller: _plateController, decoration: const InputDecoration(labelText: 'License Plate (Optional)')),
+            const SizedBox(height: 12),
+            TextField(controller: _capacityController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Battery Capacity (kWh)', hintText: 'e.g., 30.2')), // <--- NEW INPUT FIELD
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               decoration: const InputDecoration(labelText: 'Connector Type', border: OutlineInputBorder()),
