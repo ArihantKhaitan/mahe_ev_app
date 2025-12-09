@@ -16,14 +16,24 @@ The app features a **dual-interface system**:
 
 ## ✨ User Features
 
-* **🔐 Secure Access:** Strict signup validation restricted to **`@learner.manipal.edu`** (Students) and **`@manipal.edu`** (Staff) emails, plus a "Guest Mode" for visitors.
+* **🔐 Secure Access:** Strict signup validation restricted to **`@learner.manipal.edu`** (Students) and **`@manipal.edu`** (Staff) emails, plus a robust "Guest Mode" for visitors.
+* **🚗 Vehicle Management & Compatibility:**
+    * Users can add their EV details (Make, Model, **Connector Type**, Battery Capacity).
+    * The Home screen automatically filters stations based on compatibility with the user's primary vehicle connector type.
+* **📅 Advanced Booking & Reservations:**
+    * Supports **immediate** booking ("Start Now") or **future slot reservations** ("Book Later").
+    * Reserved slots appear in the Bookings tab and can be activated with a **"Start Charging Now"** button or canceled (with applicable refunds/fees).
+    * Bookings are correctly marked as **Active**, **Reserved**, or **Completed** in history.
+* **⚡ Enhanced Charging & Control:**
+    * **Circular Neon Visualization:** Shows real-time **State of Charge (SOC)** percentage with a modern, circular neon progress indicator.
+    * **Live Controls:** Allows users to **Pause/Resume** and set an **Energy Limit (kWh)** for the charging session.
+    * The "Stop & Pay" process includes a safety **"Return to Charging"** option to prevent accidental exit.
+* **🗺️ Real-Time Navigation:** Interactive map with "Locate Me" functionality. **Includes a "Navigate Here" button on station details that simulates opening a third-party maps application for directions.**
 * **📸 Smart QR Scanning:** Integrated QR code scanner simulation to instantly identify charging stations and start sessions.
 * **💳 Advanced Campus Wallet:**
     * **Quick Add:** Load money instantly using preset chips.
     * **Multi-Bank Integration:** Link multiple bank accounts (e.g., ICICI) and toggle Primary/Secondary payment methods.
     * **History:** Detailed transaction logs for all credits and debits.
-* **🗺️ Real-Time Navigation:** Interactive map with "Locate Me" functionality to visualize user position relative to charging hubs (MIT Quadrangle, KMC, etc.).
-* **⚡ Charging Simulation:** A real-time charging monitor that tracks units consumed (kWh), duration, and dynamic cost calculation.
 * **💰 Smart Billing:** Auto-calculates Energy Charges + 5% GST and handles automatic refunds for booking cancellations.
 * **🌱 Sustainability Stats:** Tracks CO₂ saved and money saved compared to fuel.
 
@@ -31,10 +41,9 @@ The app features a **dual-interface system**:
 
 * **🖥️ Dedicated Admin Zone:** Secure login for administrators (Route: `arihant@manipal.edu`).
 * **🔌 Station Management:**
-    * **Deploy:** Tap anywhere on the map to deploy a new charger with custom details (Name, Price, Spots, Fast/Solar).
-    * **Edit:** Modify pricing and parking capacity on the fly.
+    * **Deploy:** Tap anywhere on the map/home screen to deploy a new charger with custom details (Name, Price, Spots, Fast/Solar, **Connector Type**).
+    * **Edit:** Modify pricing, parking capacity, **and Connector Type** on the fly.
     * **Delete:** Remove decommissioned chargers instantly.
-* **⚠️ Maintenance System:** Toggle "Maintenance Mode" for specific chargers to notify users and disable bookings.
 * **📊 Financial Overview:** Track total revenue generated across all stations in real-time.
 * **👥 User Management:** Monitor user activity and view charging history for individual students or staff.
 * **🔍 Issue Tracking:** View and resolve reported issues (e.g., "Connector Damaged") directly from the dashboard.
@@ -45,6 +54,7 @@ The app features a **dual-interface system**:
 * **UI Design:** Material Design 3
 * **State Management:** ValueNotifier & SetState (Simulated Local State)
 * **Navigation:** Flutter Material Navigation
+* **External Integration (Simulated):** `url_launcher` for navigation via external maps.
 * **IDE:** Android Studio
 
 ## 🚀 Getting Started

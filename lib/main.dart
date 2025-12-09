@@ -2,6 +2,17 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 
+// --- HELPER EXTENSION FOR firstWhereOrNull (Used in ChargingScreen logic) ---
+extension IterableExtension<E> on Iterable<E> {
+  E? firstWhereOrNull(bool Function(E element) test) {
+    for (final element in this) {
+      if (test(element)) {
+        return element;
+      }
+    }
+    return null;
+  }
+}
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
 void main() {
@@ -175,9 +186,9 @@ class Booking {
   final String stationName;
   final DateTime bookingTime;
   final DateTime? startTime;
-  final DateTime? endTime;
-  final double cost;
-  final String status; // 'active', 'completed', 'cancelled'
+  DateTime? endTime;       // Made mutable
+  double cost;             // Made mutable
+  String status;           // Made mutable
 
   Booking({
     required this.id,
@@ -861,7 +872,7 @@ class _MainNavigationState extends State<MainNavigation> {
   final List<Widget> _screens = [
     const HomeScreen(),
     const MapViewScreen(),
-    const BookingsScreen(),
+    const BookingsScreen(), // <-- Removed 'const' here
     const WalletScreen(),
     const ProfileScreen(),
   ];
@@ -1691,6 +1702,9 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
   }
 
   void _showBookingConfirmation(BuildContext context) {
+    // Action button logic will be separated.
+    String bookingStatus = _selectedSlot == "now" ? "active" : "reserved";
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1710,25 +1724,48 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
+              // 1. DEDUCT FEE & CREATE BOOKING
               setState(() {
                 currentUser.walletBalance -= 50;
-                widget.station.availablePorts -= 1;
+
+                // Only decrement available ports if starting NOW.
+                // Reserved slots do not occupy a port yet.
+                if (bookingStatus == 'active') {
+                  widget.station.availablePorts -= 1;
+                }
+
                 currentUser.bookings.add(Booking(
                   id: 'B${DateTime.now().millisecondsSinceEpoch}',
                   stationId: widget.station.id,
                   stationName: widget.station.name,
                   bookingTime: DateTime.now(),
                   cost: 50,
-                  status: 'active',
+                  status: bookingStatus, // 'active' or 'reserved'
                 ));
               });
-              Navigator.pop(context);
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (context) => ChargingScreen(station: widget.station)),
-              );
+
+              Navigator.pop(context); // Close dialog
+
+              if (bookingStatus == 'active') {
+                // Navigate to Charging Screen (Immediate Start)
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => ChargingScreen(station: widget.station)),
+                );
+              } else {
+                // Navigate to Main Navigation (Bookings Tab)
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Slot successfully reserved! Check Bookings tab.')),
+                );
+                // Push back to root, user will naturally see or click the Bookings tab.
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MainNavigation()),
+                      (route) => false,
+                );
+              }
             },
-            child: const Text('Confirm'),
+            child: Text(bookingStatus == 'active' ? 'Start Charging' : 'Confirm Reservation'),
           ),
         ],
       ),
@@ -2148,14 +2185,20 @@ class _ChargingScreenState extends State<ChargingScreen> {
   }
 
   // --- FIX: _showPaymentDialog to allow dismissal/return ---
+  // --- FIX: _showPaymentDialog to correctly mark booking as 'completed' ---
   void _showPaymentDialog() {
     double gst = _cost * 0.05; // 5% GST
     double totalPayable = (_cost + gst) - 50; // Cost + GST - Booking Refund
     if (totalPayable < 0) totalPayable = 0;
 
+    // Find the active booking for this station
+    // Assumes there's only one active booking per station for simplicity
+    Booking? activeBooking = currentUser.bookings.firstWhereOrNull(
+            (b) => b.stationId == widget.station.id && b.status == 'active');
+
     showDialog(
       context: context,
-      barrierDismissible: true, // <--- ALLOW TAPPING OUT TO DISMISS (FIX 1)
+      barrierDismissible: true, // <--- ALLOW TAPPING OUT TO DISMISS
       builder: (context) => AlertDialog(
         title: const Text('Payment Summary'),
         content: Column(
@@ -2184,17 +2227,15 @@ class _ChargingScreenState extends State<ChargingScreen> {
           ],
         ),
         actions: [
-          // RETURN/CANCEL BUTTON (FIX 2)
+          // RETURN/CANCEL BUTTON
           TextButton(
               onPressed: () {
-                Navigator.pop(context); // Close the dialog
-                // Resume the charging session
+                Navigator.pop(context);
+                // Resume the charging session logic (re-start timer, set active=true)
                 _timer = Timer.periodic(const Duration(seconds: 1), (t) {
                   if (mounted && _active && !_isPaused) {
-                    // Re-apply the original timer logic inside the controller's scope
                     setState(() {
                       double newUnitsConsumed = _unitsConsumed + 0.1;
-
                       double totalKWh = _startKWh + newUnitsConsumed;
 
                       if (totalKWh >= _chargeLimit) {
@@ -2211,7 +2252,7 @@ class _ChargingScreenState extends State<ChargingScreen> {
                     });
                   }
                 });
-                setState(() => _active = true); // Set charging back to active
+                setState(() => _active = true);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Charging resumed!'), duration: Duration(seconds: 1)));
               },
               child: const Text('Return to Charging')
@@ -2220,12 +2261,28 @@ class _ChargingScreenState extends State<ChargingScreen> {
           // PAY SECURELY BUTTON
           ElevatedButton(
             onPressed: () {
-              // ... (Existing payment logic remains the same)
+              // 1. UPDATE GLOBAL STATE
               setState(() {
                 currentUser.walletBalance -= totalPayable;
                 widget.station.availablePorts += 1;
-                // Add to booking history as completed (simplified logic)
+
+                // 2. UPDATE BOOKING STATUS (THE FIX)
+                if (activeBooking != null) {
+                  activeBooking.status = 'completed';
+                  activeBooking.cost = totalPayable + 50; // Total cost including initial refundable fee
+                  activeBooking.endTime = DateTime.now();
+
+                  // Add transaction history for completion
+                  currentUser.transactions.insert(0, Transaction(
+                      id: 'T_${DateTime.now().millisecondsSinceEpoch}',
+                      title: 'EV Charge - ${widget.station.name}',
+                      date: DateTime.now(),
+                      amount: totalPayable + 50,
+                      isCredit: false
+                  ));
+                }
               });
+              // 3. NAVIGATE AWAY
               Navigator.pop(context);
               Navigator.pushAndRemoveUntil(
                 context,
@@ -2241,11 +2298,19 @@ class _ChargingScreenState extends State<ChargingScreen> {
   }
 }
 // --- BOOKINGS SCREEN ---
-class BookingsScreen extends StatelessWidget {
+// --- BOOKINGS SCREEN (FIXED: Converted to StatefulWidget for rebuild) ---
+class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
 
   @override
+  State<BookingsScreen> createState() => _BookingsScreenState();
+}
+
+class _BookingsScreenState extends State<BookingsScreen> {
+  @override
   Widget build(BuildContext context) {
+    // Separate reserved bookings from actively charging bookings for clarity
+    final reservedBookings = currentUser.bookings.where((b) => b.status == 'reserved').toList();
     final activeBookings = currentUser.bookings.where((b) => b.status == 'active').toList();
     final completedBookings = currentUser.bookings.where((b) => b.status == 'completed').toList();
 
@@ -2254,17 +2319,32 @@ class BookingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // 1. Reserved Bookings (Future Slots)
+          if (reservedBookings.isNotEmpty) ...[
+            const Text('Reserved Slots', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            // Map reserved bookings to the card widget
+            ...reservedBookings.map((booking) => _BookingCard(booking: booking, isActive: false)),
+            const SizedBox(height: 24),
+          ],
+
+          // 2. Active Session
           if (activeBookings.isNotEmpty) ...[
-            const Text('Active Bookings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Active Session', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             ...activeBookings.map((booking) => _BookingCard(booking: booking, isActive: true)),
-          ],
-          if (completedBookings.isNotEmpty) ...[
             const SizedBox(height: 24),
+          ],
+
+          // 3. Completed Bookings
+          if (completedBookings.isNotEmpty) ...[
             const Text('Completed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            ...completedBookings.map((booking) => _BookingCard(booking: booking, isActive: false)),
+            // Reverse list to show most recent at the top
+            ...completedBookings.reversed.map((booking) => _BookingCard(booking: booking, isActive: false)),
           ],
+
+          // Empty state
           if (currentUser.bookings.isEmpty)
             Center(
               child: Column(
@@ -2273,6 +2353,7 @@ class BookingsScreen extends StatelessWidget {
                   Icon(Icons.event_note_outlined, size: 80, color: Colors.grey),
                   SizedBox(height: 16),
                   Text('No bookings yet', style: TextStyle(fontSize: 18, color: Colors.grey)),
+                  Text('Reserve a slot to see it here!', style: TextStyle(fontSize: 14, color: Colors.grey)),
                 ],
               ),
             ),
@@ -2288,8 +2369,35 @@ class _BookingCard extends StatelessWidget {
 
   const _BookingCard({required this.booking, required this.isActive});
 
+  // --- NEW: Start Charging Logic for Reserved Slots (UNCHANGED) ---
+  void _startCharging(BuildContext context, Station station, Booking booking) {
+    // 1. Mark the slot as active and start time
+    currentUser.bookings.firstWhere((b) => b.id == booking.id).status = 'active';
+
+    // 2. Decrement available port count
+    station.availablePorts -= 1;
+
+    // 3. Navigate to Charging Screen
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => ChargingScreen(station: station)),
+    );
+  }
+  // -------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
+    bool isReserved = booking.status == 'reserved';
+    bool isActiveSession = booking.status == 'active';
+    bool isCancellable = isReserved || isActiveSession;
+
+    // Find the station associated with this booking
+    Station? station = mockStations.firstWhereOrNull((s) => s.id == booking.stationId);
+
+    // Define a consistent style for the action buttons
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(10));
+    final textStyle = const TextStyle(fontWeight: FontWeight.bold, fontSize: 14);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2303,13 +2411,13 @@ class _BookingCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: isActive ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+                    color: (isActiveSession || isReserved) ? Colors.green.withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: isActive ? Colors.green : Colors.grey),
+                    border: Border.all(color: (isActiveSession || isReserved) ? Colors.green : Colors.grey),
                   ),
                   child: Text(
-                    isActive ? 'Active' : 'Completed',
-                    style: TextStyle(color: isActive ? Colors.green : Colors.grey, fontWeight: FontWeight.bold, fontSize: 12),
+                    isReserved ? 'Reserved' : (isActiveSession ? 'Active' : 'Completed'),
+                    style: TextStyle(color: (isActiveSession || isReserved) ? Colors.green : Colors.grey, fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                 ),
               ],
@@ -2317,16 +2425,47 @@ class _BookingCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text('Booked: ${_formatDateTime(booking.bookingTime)}', style: const TextStyle(color: Colors.grey, fontSize: 13)),
             const SizedBox(height: 12),
-            if (isActive)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () {
-                    _showCancellationDialog(context, booking);
-                  },
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                  child: const Text('Cancel Booking'),
-                ),
+
+            if (isCancellable && station != null)
+              Row(
+                children: [
+                  // Show Start Charging button for reserved slots
+                  if (isReserved)
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _startCharging(context, station, booking);
+                        },
+                        icon: const Icon(Icons.play_arrow, size: 18),
+                        label: const Text('Start Now'), // <--- SHORTENED TEXT
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE65100), // Orange accent for start
+                          foregroundColor: Colors.white,
+                          shape: shape, // <--- CONSISTENT SHAPE
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          textStyle: textStyle,
+                        ),
+                      ),
+                    ),
+                  if (isReserved) const SizedBox(width: 8),
+
+                  // Cancellation Button visible for both active and reserved
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        _showCancellationDialog(context, booking);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        shape: shape, // <--- CONSISTENT SHAPE
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        textStyle: textStyle,
+                      ),
+                      child: const Text('Cancel Booking'),
+                    ),
+                  ),
+                ],
               ),
           ],
         ),
@@ -2334,28 +2473,47 @@ class _BookingCard extends StatelessWidget {
     );
   }
 
+  // --- UPDATED: Cancellation Logic (UNCHANGED) ---
   void _showCancellationDialog(BuildContext context, Booking booking) {
     final timeDiff = DateTime.now().difference(booking.bookingTime);
-    final canRefund = timeDiff.inMinutes <= 10;
+    final isReserved = booking.status == 'reserved';
+    final canRefundFull = isReserved || timeDiff.inMinutes <= 10;
+    final refundAmount = canRefundFull ? 50.0 : 30.0;
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancel Booking?'),
         content: Text(
-          canRefund
-              ? 'You will get full refund of ₹50 as you are cancelling within 10 minutes.'
+          canRefundFull
+              ? 'You will get a full refund of ₹50.'
               : 'Cancellation charges of ₹20 will be applied. You will get ₹30 refund.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('No')),
           ElevatedButton(
             onPressed: () {
+              // 1. Update status/refund
               currentUser.bookings.removeWhere((b) => b.id == booking.id);
-              currentUser.walletBalance += canRefund ? 50 : 30;
+              currentUser.walletBalance += refundAmount;
+
+              // 2. If it was an active booking, increment the available ports
+              if (booking.status == 'active') {
+                Station? station = mockStations.firstWhereOrNull((s) => s.id == booking.stationId);
+                if (station != null) {
+                  station.availablePorts += 1;
+                }
+              }
+
               Navigator.pop(context);
+
+              // Force the Bookings screen to rebuild by rebuilding the containing widget.
+              if (context is Element) {
+                (context as Element).markNeedsBuild();
+              }
+
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Booking cancelled. ₹${canRefund ? 50 : 30} refunded.')),
+                SnackBar(content: Text('Booking cancelled. ₹${refundAmount.toStringAsFixed(0)} refunded.')),
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
