@@ -132,6 +132,7 @@ class Station {
   final int parkingSpaces;
   int availableParking;
   final double pricePerUnit;
+  final String connectorType; // <--- NEW FIELD: Type of connector the station provides
 
   Station({
     required this.id,
@@ -148,6 +149,7 @@ class Station {
     required this.parkingSpaces,
     required this.availableParking,
     required this.pricePerUnit,
+    required this.connectorType, // <--- NEW REQUIRED PARAMETER
   });
 }
 
@@ -194,20 +196,22 @@ class UserProfile {
   String name;
   String email;
   String userType;
-  bool isAdmin; // <--- NEW FIELD
+  bool isAdmin;
   double walletBalance;
   List<Booking> bookings;
   List<Transaction> transactions;
+  List<Vehicle> vehicles; // <--- NEW FIELD
 
   UserProfile({
     required this.id,
     required this.name,
     required this.email,
     required this.userType,
-    this.isAdmin = false, // Default is false
+    this.isAdmin = false,
     required this.walletBalance,
     required this.bookings,
     required this.transactions,
+    this.vehicles = const [], // Default to empty list
   });
 }
 
@@ -243,7 +247,44 @@ class ReportedIssue {
   });
 }
 
+class Vehicle {
+  final String id;
+  final String make;
+  final String model;
+  final String licensePlate;
+  final String connectorType; // e.g., 'CCS Type 2', 'Type 2 AC', 'CHAdeMO'
+  final bool isPrimary;
+
+  Vehicle({
+    required this.id,
+    required this.make,
+    required this.model,
+    required this.licensePlate,
+    required this.connectorType,
+    this.isPrimary = false,
+  });
+}
+
 // --- MOCK DATA ---
+
+// --- MOCK DATA FOR VEHICLES ---
+List<Vehicle> mockVehicles = [
+  Vehicle(
+    id: 'V1',
+    make: 'TATA',
+    model: 'Nexon EV',
+    licensePlate: 'KA 01 EV 1234',
+    connectorType: 'CCS Type 2',
+    isPrimary: true,
+  ),
+  Vehicle(
+    id: 'V2',
+    make: 'MG',
+    model: 'ZS EV',
+    licensePlate: 'KA 01 MG 0077',
+    connectorType: 'Type 2 AC',
+  ),
+];
 
 List<ReportedIssue> mockIssues = [
   ReportedIssue(id: 'I1', stationName: 'MIT Quadrangle', reportedBy: 'Rahul S.', issueType: 'Connector Damaged', time: DateTime.now().subtract(const Duration(hours: 2))),
@@ -279,11 +320,12 @@ List<AppNotification> mockNotifications = [
 ];
 
 // Initial Stations
+// Initial Stations (UPDATED with connectorType)
 List<Station> mockStations = [
-  Station(id: '1', name: 'MIT Quadrangle', location: 'Block 4', distance: 0.5, isFastCharger: true, totalPorts: 4, availablePorts: 2, isSharedPower: true, isSolarPowered: true, mapX: 0.4, mapY: 0.3, parkingSpaces: 8, availableParking: 3, pricePerUnit: 8.5),
-  Station(id: '2', name: 'KMC Staff Parking', location: 'Tiger Circle', distance: 1.2, isFastCharger: true, totalPorts: 2, availablePorts: 0, isSharedPower: false, isSolarPowered: true, mapX: 0.7, mapY: 0.6, parkingSpaces: 6, availableParking: 0, pricePerUnit: 8.5),
-  Station(id: '3', name: 'AB-5 Solar Carport', location: 'Uni Road', distance: 2.8, isFastCharger: false, totalPorts: 6, availablePorts: 5, isSharedPower: false, isSolarPowered: true, mapX: 0.2, mapY: 0.8, parkingSpaces: 12, availableParking: 8, pricePerUnit: 7.0),
-  Station(id: '4', name: 'NLH EV Point', location: 'NLH Complex', distance: 0.8, isFastCharger: false, totalPorts: 4, availablePorts: 4, isSharedPower: false, isSolarPowered: false, mapX: 0.5, mapY: 0.4, parkingSpaces: 4, availableParking: 2, pricePerUnit: 8.0),
+  Station(id: '1', name: 'MIT Quadrangle', location: 'Block 4', distance: 0.5, isFastCharger: true, totalPorts: 4, availablePorts: 2, isSharedPower: true, isSolarPowered: true, mapX: 0.4, mapY: 0.3, parkingSpaces: 8, availableParking: 3, pricePerUnit: 8.5, connectorType: 'CCS Type 2'),
+  Station(id: '2', name: 'KMC Staff Parking', location: 'Tiger Circle', distance: 1.2, isFastCharger: true, totalPorts: 2, availablePorts: 0, isSharedPower: false, isSolarPowered: true, mapX: 0.7, mapY: 0.6, parkingSpaces: 6, availableParking: 0, pricePerUnit: 8.5, connectorType: 'CCS Type 2'),
+  Station(id: '3', name: 'AB-5 Solar Carport', location: 'Uni Road', distance: 2.8, isFastCharger: false, totalPorts: 6, availablePorts: 5, isSharedPower: false, isSolarPowered: true, mapX: 0.2, mapY: 0.8, parkingSpaces: 12, availableParking: 8, pricePerUnit: 7.0, connectorType: 'Type 2 AC'),
+  Station(id: '4', name: 'NLH EV Point', location: 'NLH Complex', distance: 0.8, isFastCharger: false, totalPorts: 4, availablePorts: 4, isSharedPower: false, isSolarPowered: false, mapX: 0.5, mapY: 0.4, parkingSpaces: 4, availableParking: 2, pricePerUnit: 8.0, connectorType: 'Type 2 AC'),
 ];
 
 // Global User State (Starts empty, populated on Login)
@@ -298,6 +340,7 @@ UserProfile currentUser = UserProfile(
     Transaction(id: 'T1', title: 'Added Money', date: DateTime.now().subtract(const Duration(days: 1)), amount: 500, isCredit: true),
     Transaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
   ],
+  vehicles: mockVehicles, // Add the mock list here
 );
 List<Transaction> allGlobalTransactions = [
   Transaction(id: 'TXN_001', title: 'Payment - User A', date: DateTime.now().subtract(const Duration(minutes: 10)), amount: 120.0, isCredit: false),
@@ -346,6 +389,7 @@ class _LoginScreenState extends State<LoginScreen> {
             walletBalance: 99999.0,
             bookings: [],
             transactions: [],
+            vehicles: const [], // Added
           );
           Navigator.pushReplacement(
             context,
@@ -405,6 +449,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Transaction(id: 'T1', title: 'Wallet Top-up', date: DateTime.now().subtract(const Duration(days: 5)), amount: 500.0, isCredit: true),
             Transaction(id: 'T2', title: 'EV Charge - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 120.50, isCredit: false),
           ],
+          vehicles: mockVehicles, // Added
         );
 
         Navigator.pushReplacement(
@@ -427,6 +472,7 @@ class _LoginScreenState extends State<LoginScreen> {
           walletBalance: 100.0,
           bookings: [],
           transactions: [],
+          vehicles: const [], // Added
         );
         Navigator.pushReplacement(
           context,
@@ -841,16 +887,47 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _filterType = 'all';
+
+  // New helper to get the primary vehicle's connector type
+  String? get primaryConnectorType {
+    if (currentUser.vehicles.isEmpty) return null;
+    return currentUser.vehicles.firstWhere(
+          (v) => v.isPrimary,
+      orElse: () => currentUser.vehicles.first, // Fallback to first vehicle if no primary is explicitly set
+    ).connectorType;
+  }
+
   List<Station> get filteredStations {
-    if (_filterType == 'all') return mockStations;
-    if (_filterType == 'available') return mockStations.where((s) => s.availablePorts > 0).toList();
-    if (_filterType == 'fast') return mockStations.where((s) => s.isFastCharger).toList();
-    return mockStations;
+    // Start with all stations
+    Iterable<Station> stations = mockStations;
+
+    if (_filterType == 'available') {
+      stations = stations.where((s) => s.availablePorts > 0);
+    } else if (_filterType == 'fast') {
+      stations = stations.where((s) => s.isFastCharger);
+    } else if (_filterType == 'compatible') {
+      final requiredConnector = primaryConnectorType;
+      // Only filter if the user has a vehicle with a known connector type
+      if (requiredConnector != null) {
+        stations = stations.where((s) => s.connectorType == requiredConnector);
+      }
+    }
+
+    // Return the final list of stations
+    return stations.toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final hasUnread = mockNotifications.any((n) => !n.read);
+
+    // Get the name of the primary vehicle for the compatible filter chip label
+    final primaryVehicleName = currentUser.vehicles.isEmpty
+        ? null
+        : (currentUser.vehicles.firstWhere(
+          (v) => v.isPrimary,
+      orElse: () => currentUser.vehicles.first,
+    )).make; // Use make/brand for the display name
 
     return Scaffold(
       appBar: AppBar(
@@ -892,7 +969,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           // Filters
-          Container(
+          SingleChildScrollView( // Added to prevent overflow if many chips are added later
+            scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
@@ -901,13 +979,36 @@ class _HomeScreenState extends State<HomeScreen> {
                 _FilterChip(label: 'Available', selected: _filterType == 'available', onTap: () => setState(() => _filterType = 'available')),
                 const SizedBox(width: 8),
                 _FilterChip(label: 'Fast Charging', selected: _filterType == 'fast', onTap: () => setState(() => _filterType = 'fast')),
+                const SizedBox(width: 8),
+                // --- NEW: COMPATIBLE FILTER CHIP ---
+                if (primaryVehicleName != null)
+                  _FilterChip(
+                      label: '$primaryVehicleName Compatible',
+                      selected: _filterType == 'compatible',
+                      onTap: () => setState(() => _filterType = 'compatible')
+                  ),
+                // -----------------------------------
               ],
             ),
           ),
           // List
           Expanded(
             child: filteredStations.isEmpty
-                ? const Center(child: Text("No stations found."))
+                ? Center(child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.charging_station_outlined, size: 72, color: Colors.grey),
+                const SizedBox(height: 16),
+                Text(
+                    _filterType == 'compatible' && primaryVehicleName != null
+                        ? 'No ${primaryVehicleName} Compatible stations found.'
+                        : 'No stations found.',
+                    style: const TextStyle(fontSize: 18, color: Colors.grey)
+                ),
+                if (_filterType == 'compatible' && primaryVehicleName == null)
+                  const Text('Add a vehicle to enable compatible filtering.', style: TextStyle(fontSize: 14, color: Colors.grey))
+              ],
+            ))
                 : ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: filteredStations.length,
@@ -1607,6 +1708,7 @@ class ChargingScreen extends StatefulWidget {
   State<ChargingScreen> createState() => _ChargingScreenState();
 }
 
+// --- CHARGING SCREEN (UPDATED with Pause/Resume and Charge Limit) ---
 class _ChargingScreenState extends State<ChargingScreen> {
   Timer? _timer;
   double _cost = 0.0;
@@ -1614,15 +1716,28 @@ class _ChargingScreenState extends State<ChargingScreen> {
   bool _active = true;
   DateTime? _startTime;
 
+  // --- NEW STATE FIELDS FOR CONTROL ---
+  bool _isPaused = false;
+  double _chargeLimit = 0.0; // 0.0 means no limit is set (i.e., charge to full)
+  // ------------------------------------
+
   @override
   void initState() {
     super.initState();
     _startTime = DateTime.now();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (mounted && _active) {
+      if (mounted && _active && !_isPaused) {
         setState(() {
-          _unitsConsumed += 0.01; // 0.01 kWh per second
-          _cost = _unitsConsumed * widget.station.pricePerUnit;
+          // Check if limit is set AND about to be exceeded
+          if (_chargeLimit > 0.0 && (_unitsConsumed + 0.01) >= _chargeLimit) {
+            _unitsConsumed = _chargeLimit; // Clamp to the limit
+            _cost = _unitsConsumed * widget.station.pricePerUnit;
+            _stopCharging(limitReached: true); // Stop charging automatically
+          } else {
+            // Normal charging continues
+            _unitsConsumed += 0.01; // 0.01 kWh per second (36 kWh/hr simulation)
+            _cost = _unitsConsumed * widget.station.pricePerUnit;
+          }
         });
       }
     });
@@ -1634,17 +1749,99 @@ class _ChargingScreenState extends State<ChargingScreen> {
     super.dispose();
   }
 
+  // --- NEW CONTROL LOGIC METHODS ---
+
+  void _togglePause() {
+    if (!_active) return; // Cannot pause if session is already stopped
+    setState(() {
+      _isPaused = !_isPaused;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_isPaused ? 'Charging Paused.' : 'Charging Resumed.')),
+      );
+    });
+  }
+
+  void _showChargeLimitDialog() {
+    final controller = TextEditingController(text: _chargeLimit > 0.0 ? _chargeLimit.toStringAsFixed(1) : '');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Set Charge Limit (kWh)'),
+        content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Energy Limit (kWh)', hintText: 'e.g., 20.0', border: OutlineInputBorder())
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () {
+                final val = double.tryParse(controller.text) ?? 0;
+                if (val > _unitsConsumed) {
+                  setState(() => _chargeLimit = val);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Charge limit set to ${val.toStringAsFixed(1)} kWh')),
+                  );
+                } else if (val > 0.0) {
+                  // If new limit is less than or equal to current consumption, stop immediately
+                  Navigator.pop(context);
+                  _stopCharging(limitReached: true);
+                } else {
+                  // User entered 0 or less, or invalid text
+                  setState(() => _chargeLimit = 0.0);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Charge limit removed.')),
+                  );
+                }
+              },
+              child: const Text('Set Limit')
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Unified method to stop charging and open payment dialog
+  void _stopCharging({bool limitReached = false}) {
+    if (!_active) return;
+
+    _timer?.cancel();
+    setState(() => _active = false);
+
+    if (limitReached) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Charge limit of ${_chargeLimit.toStringAsFixed(1)} kWh reached! Processing payment...')),
+      );
+    }
+    _showPaymentDialog();
+  }
+
+  // --- BUILD METHOD ---
+
   @override
   Widget build(BuildContext context) {
     final duration = _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF001F1A), // Dark mode friendly charging bg
+      backgroundColor: isDark ? const Color(0xFF001F1A) : const Color(0xFF00796B),
       appBar: AppBar(
         title: const Text("Active Charging"),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
+        elevation: 0,
+        actions: [
+          // NEW: Charge Limit Button
+          IconButton(
+            icon: Icon(Icons.speed, color: _chargeLimit > 0.0 ? Colors.amberAccent : Colors.white),
+            tooltip: _chargeLimit > 0.0 ? 'Limit: ${_chargeLimit.toStringAsFixed(1)} kWh' : 'Set Charge Limit',
+            onPressed: _active ? _showChargeLimitDialog : null,
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(
@@ -1655,13 +1852,39 @@ class _ChargingScreenState extends State<ChargingScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(30),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.flash_on, size: 80, color: Colors.amber),
+                    // Status Icon (Shows Pause/Limit Status)
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(30),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _isPaused ? Icons.pause_circle_outline : Icons.flash_on,
+                            size: 80,
+                            color: _isPaused ? Colors.grey : Colors.amber,
+                          ),
+                        ),
+                        if (_chargeLimit > 0.0)
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Colors.amber,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${_chargeLimit.toStringAsFixed(0)}',
+                                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 30),
                     const Text('LIVE METER', style: TextStyle(color: Colors.white54, fontSize: 14, letterSpacing: 2)),
@@ -1671,6 +1894,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
                       style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                     const SizedBox(height: 30),
+
+                    // Stats Box
                     Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
@@ -1708,24 +1933,44 @@ class _ChargingScreenState extends State<ChargingScreen> {
                   ],
                 ),
               ),
+
+              // Control Buttons
               if (_active)
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      _timer?.cancel();
-                      setState(() => _active = false);
-                      _showPaymentDialog();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade700,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                Row(
+                  children: [
+                    // Pause/Resume Button
+                    SizedBox(
+                      width: 150,
+                      height: 56,
+                      child: OutlinedButton.icon(
+                        onPressed: _togglePause,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Colors.white54),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
+                        label: Text(_isPaused ? "Resume" : "Pause", style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ),
                     ),
-                    icon: const Icon(Icons.stop_circle_outlined),
-                    label: const Text("Stop & Pay", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
+                    const SizedBox(width: 12),
+                    // Stop & Pay Button
+                    Expanded(
+                      child: SizedBox(
+                        height: 56,
+                        child: ElevatedButton.icon(
+                          onPressed: () => _stopCharging(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade700,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          icon: const Icon(Icons.stop_circle_outlined),
+                          label: const Text("Stop & Pay", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ),
+                  ],
                 )
               else
                 const Text('Processing payment...', style: TextStyle(color: Colors.white70)),
@@ -2156,6 +2401,7 @@ class _QuickAddChip extends StatelessWidget {
 }
 
 // --- PROFILE SCREEN (UPDATED) ---
+// --- PROFILE SCREEN (UPDATED with Vehicle Management) ---
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -2215,6 +2461,20 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 24),
 
+          // VEHICLES SECTION (NEW)
+          const Text('Vehicle & Charging', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _SettingsTile(
+              icon: Icons.directions_car_outlined,
+              title: 'Vehicle Management',
+              trailing: Text('${currentUser.vehicles.length} vehicles'),
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const VehicleScreen()));
+              }
+          ),
+
+          const SizedBox(height: 24),
+
           // APPEARANCE SECTION
           const Text('Appearance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -2250,7 +2510,7 @@ class ProfileScreen extends StatelessWidget {
           const Text('Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
 
-          // --- UPDATED NAVIGATION HERE ---
+          // --- EXISTING SETTINGS ---
           _SettingsTile(
               icon: Icons.notifications_outlined,
               title: 'Notifications',
@@ -2318,20 +2578,29 @@ class _StatBox extends StatelessWidget {
   }
 }
 
+// --- FIXED _SettingsTile WIDGET ---
 class _SettingsTile extends StatelessWidget {
   final IconData icon;
   final String title;
   final VoidCallback onTap;
   final bool isDestructive;
+  final Widget? trailing; // <--- ADDED TRAILING FIELD
 
-  const _SettingsTile({required this.icon, required this.title, required this.onTap, this.isDestructive = false});
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.isDestructive = false,
+    this.trailing, // <--- ADDED TRAILING PARAMETER
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       leading: Icon(icon, color: isDestructive ? Colors.red : null),
       title: Text(title, style: TextStyle(color: isDestructive ? Colors.red : null)),
-      trailing: const Icon(Icons.chevron_right),
+      // If trailing is null, use the default chevron; otherwise, use the provided widget
+      trailing: trailing ?? const Icon(Icons.chevron_right),
       onTap: onTap,
     );
   }
@@ -3117,11 +3386,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   // --- DETAILED ADD DIALOG FOR HOME ---
+  // --- DETAILED ADD DIALOG FOR HOME (FIXED for connectorType) ---
   void _addNewStation() {
     final nameController = TextEditingController();
     final locController = TextEditingController();
     final priceController = TextEditingController();
     final spotsController = TextEditingController();
+    String selectedConnector = 'CCS Type 2'; // Default connector
     bool isFast = false;
     bool isSolar = false;
 
@@ -3139,6 +3410,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
                     const SizedBox(height: 10),
                     TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    // Connector Type Dropdown (NEW)
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
+                      value: selectedConnector,
+                      dropdownColor: const Color(0xFF2C2C2C),
+                      style: const TextStyle(color: Colors.white),
+                      items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                      onChanged: (val) => setDialogState(() => selectedConnector = val!),
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -3172,6 +3454,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                             parkingSpaces: int.tryParse(spotsController.text) ?? 5,
                             availableParking: int.tryParse(spotsController.text) ?? 5,
                             pricePerUnit: double.tryParse(priceController.text) ?? 8.0,
+                            connectorType: selectedConnector, // <--- FIXED: Passed connectorType
                           ));
                         });
                         Navigator.pop(context);
@@ -3268,11 +3551,13 @@ class AdminMapScreen extends StatefulWidget {
 class _AdminMapScreenState extends State<AdminMapScreen> {
 
   // --- DETAILED ADD DIALOG FOR MAP ---
+  // --- DETAILED ADD DIALOG FOR MAP (FIXED for connectorType) ---
   void _showAddDialogAtLocation(double x, double y) {
     final nameController = TextEditingController();
     final locController = TextEditingController(text: "Pinned Location");
     final priceController = TextEditingController();
     final spotsController = TextEditingController();
+    String selectedConnector = 'CCS Type 2'; // Default connector
     bool isFast = false;
     bool isSolar = false;
 
@@ -3292,6 +3577,17 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                     TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
                     const SizedBox(height: 10),
                     TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    // Connector Type Dropdown (NEW)
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
+                      value: selectedConnector,
+                      dropdownColor: const Color(0xFF2C2C2C),
+                      style: const TextStyle(color: Colors.white),
+                      items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                      onChanged: (val) => setDialogState(() => selectedConnector = val!),
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -3325,6 +3621,7 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                           parkingSpaces: int.tryParse(spotsController.text) ?? 5,
                           availableParking: int.tryParse(spotsController.text) ?? 5,
                           pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
+                          connectorType: selectedConnector, // <--- FIXED: Passed connectorType
                         ));
                       });
                       Navigator.pop(context);
@@ -3425,57 +3722,74 @@ class _StationInspectorSheet extends StatefulWidget {
 class _StationInspectorSheetState extends State<_StationInspectorSheet> {
 
   // Show Edit Dialog
+  // Show Edit Dialog (FIXED for connectorType)
   void _showEditDialog() {
     final nameController = TextEditingController(text: widget.station.name);
     final priceController = TextEditingController(text: widget.station.pricePerUnit.toString());
     final spotsController = TextEditingController(text: widget.station.parkingSpaces.toString());
+    String selectedConnector = widget.station.connectorType; // Get existing type
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: const Text("Edit Details", style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Name", labelStyle: TextStyle(color: Colors.grey))),
-            const SizedBox(height: 10),
-            TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price", labelStyle: TextStyle(color: Colors.grey))),
-            const SizedBox(height: 10),
-            TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey))),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                int idx = mockStations.indexOf(widget.station);
-                if (idx != -1) {
-                  mockStations[idx] = Station(
-                    id: widget.station.id,
-                    name: nameController.text,
-                    location: widget.station.location,
-                    distance: widget.station.distance,
-                    isFastCharger: widget.station.isFastCharger,
-                    totalPorts: widget.station.totalPorts,
-                    availablePorts: widget.station.availablePorts,
-                    isSharedPower: widget.station.isSharedPower,
-                    isSolarPowered: widget.station.isSolarPowered,
-                    mapX: widget.station.mapX,
-                    mapY: widget.station.mapY,
-                    parkingSpaces: int.tryParse(spotsController.text) ?? 5,
-                    availableParking: widget.station.availableParking,
-                    pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
-                  );
-                }
-              });
-              widget.onUpdate(); // Refresh parent
-              Navigator.pop(context);
-            },
-            child: const Text("Save"),
-          )
-        ],
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2C2C2C),
+              title: const Text("Edit Details", style: TextStyle(color: Colors.white)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Name", labelStyle: TextStyle(color: Colors.grey))),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
+                    value: selectedConnector,
+                    dropdownColor: const Color(0xFF2C2C2C),
+                    style: const TextStyle(color: Colors.white),
+                    items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    onChanged: (val) => setDialogState(() => selectedConnector = val!),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price", labelStyle: TextStyle(color: Colors.grey))),
+                  const SizedBox(height: 10),
+                  TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey))),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      int idx = mockStations.indexOf(widget.station);
+                      if (idx != -1) {
+                        mockStations[idx] = Station(
+                          id: widget.station.id,
+                          name: nameController.text,
+                          location: widget.station.location,
+                          distance: widget.station.distance,
+                          isFastCharger: widget.station.isFastCharger,
+                          totalPorts: widget.station.totalPorts,
+                          availablePorts: widget.station.availablePorts,
+                          isSharedPower: widget.station.isSharedPower,
+                          isSolarPowered: widget.station.isSolarPowered,
+                          mapX: widget.station.mapX,
+                          mapY: widget.station.mapY,
+                          parkingSpaces: int.tryParse(spotsController.text) ?? 5,
+                          availableParking: widget.station.availableParking,
+                          pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
+                          connectorType: selectedConnector, // <--- FIXED: Passed connectorType
+                        );
+                      }
+                    });
+                    widget.onUpdate(); // Refresh parent
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Save"),
+                )
+              ],
+            );
+          }
       ),
     );
   }
@@ -3676,6 +3990,258 @@ class AdminProfileScreen extends StatelessWidget {
           ElevatedButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)), child: const Text("Logout")),
         ],
       ),
+    );
+  }
+}
+// --- NEW: VEHICLE MANAGEMENT SCREEN ---
+class VehicleScreen extends StatefulWidget {
+  const VehicleScreen({super.key});
+
+  @override
+  State<VehicleScreen> createState() => _VehicleScreenState();
+}
+
+class _VehicleScreenState extends State<VehicleScreen> {
+  // Common connector types used in India (simplified list)
+  final List<String> commonConnectors = const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T'];
+
+  void _addVehicle() {
+    showDialog(
+      context: context,
+      builder: (context) => _AddVehicleDialog(
+        onAdd: (newVehicle) {
+          setState(() {
+            // Logic to manage primary status on add
+            if (newVehicle.isPrimary) {
+              for (var v in currentUser.vehicles) {
+                if (v.isPrimary) {
+                  // Must re-create list with updated item since Vehicle is immutable
+                  int index = currentUser.vehicles.indexOf(v);
+                  currentUser.vehicles[index] = Vehicle(
+                    id: v.id,
+                    make: v.make,
+                    model: v.model,
+                    licensePlate: v.licensePlate,
+                    connectorType: v.connectorType,
+                    isPrimary: false,
+                  );
+                }
+              }
+            }
+            currentUser.vehicles.add(newVehicle);
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${newVehicle.make} ${newVehicle.model} added!')),
+          );
+        },
+      ),
+    );
+  }
+
+  void _togglePrimary(Vehicle vehicle) {
+    setState(() {
+      if (!vehicle.isPrimary) {
+        // 1. Set all other vehicles to non-primary
+        for (int i = 0; i < currentUser.vehicles.length; i++) {
+          final v = currentUser.vehicles[i];
+          if (v.isPrimary) {
+            currentUser.vehicles[i] = Vehicle(
+              id: v.id,
+              make: v.make,
+              model: v.model,
+              licensePlate: v.licensePlate,
+              connectorType: v.connectorType,
+              isPrimary: false,
+            );
+          }
+        }
+        // 2. Set the selected vehicle to primary
+        int index = currentUser.vehicles.indexOf(vehicle);
+        currentUser.vehicles[index] = Vehicle(
+          id: vehicle.id,
+          make: vehicle.make,
+          model: vehicle.model,
+          licensePlate: vehicle.licensePlate,
+          connectorType: vehicle.connectorType,
+          isPrimary: true,
+        );
+      }
+    });
+  }
+
+  void _deleteVehicle(String id) {
+    setState(() {
+      currentUser.vehicles.removeWhere((v) => v.id == id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vehicle removed.')),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Vehicles', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_box_outlined),
+            onPressed: _addVehicle,
+          ),
+        ],
+      ),
+      body: currentUser.vehicles.isEmpty
+          ? Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.directions_car_outlined, size: 80, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text('No vehicles added yet.', style: TextStyle(fontSize: 18, color: Colors.grey)),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: _addVehicle,
+              icon: const Icon(Icons.add),
+              label: const Text('Add My First EV'),
+            ),
+          ],
+        ),
+      )
+          : ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: currentUser.vehicles.length,
+        itemBuilder: (context, index) {
+          final v = currentUser.vehicles[index];
+          return Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: CircleAvatar(
+                backgroundColor: v.isPrimary ? const Color(0xFF00796B).withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+                child: Icon(Icons.electric_car, color: v.isPrimary ? const Color(0xFF00796B) : Colors.grey),
+              ),
+              title: Text('${v.make} ${v.model}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(v.licensePlate, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.bolt, size: 14, color: Colors.blue),
+                      const SizedBox(width: 4),
+                      Text(v.connectorType, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                ],
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (v.isPrimary)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('PRIMARY', style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold)),
+                    )
+                  else
+                    IconButton(
+                      icon: const Icon(Icons.star_outline, color: Colors.orange),
+                      onPressed: () => _togglePrimary(v),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () => _deleteVehicle(v.id),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// --- NEW: ADD VEHICLE DIALOG ---
+class _AddVehicleDialog extends StatefulWidget {
+  final Function(Vehicle) onAdd;
+  const _AddVehicleDialog({required this.onAdd});
+
+  @override
+  State<_AddVehicleDialog> createState() => __AddVehicleDialogState();
+}
+
+class __AddVehicleDialogState extends State<_AddVehicleDialog> {
+  final _makeController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _plateController = TextEditingController();
+  String? _selectedConnector;
+  bool _isPrimary = false;
+
+  final List<String> commonConnectors = const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T', 'Other'];
+
+  void _handleSubmit() {
+    if (_makeController.text.isEmpty || _modelController.text.isEmpty || _selectedConnector == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields.')));
+      return;
+    }
+
+    final newVehicle = Vehicle(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      make: _makeController.text.trim(),
+      model: _modelController.text.trim(),
+      licensePlate: _plateController.text.trim(),
+      connectorType: _selectedConnector!,
+      isPrimary: _isPrimary || currentUser.vehicles.isEmpty, // Auto-set as primary if it's the first vehicle
+    );
+
+    widget.onAdd(newVehicle);
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add New EV'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _makeController, decoration: const InputDecoration(labelText: 'Make (e.g. TATA)')),
+            const SizedBox(height: 12),
+            TextField(controller: _modelController, decoration: const InputDecoration(labelText: 'Model (e.g. Nexon EV)')),
+            const SizedBox(height: 12),
+            TextField(controller: _plateController, decoration: const InputDecoration(labelText: 'License Plate (Optional)')),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Connector Type', border: OutlineInputBorder()),
+              value: _selectedConnector,
+              hint: const Text('Select your car\'s plug type'),
+              items: commonConnectors.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (value) => setState(() => _selectedConnector = value),
+            ),
+            if (currentUser.vehicles.isNotEmpty)
+              SwitchListTile(
+                title: const Text('Set as Primary Vehicle'),
+                value: _isPrimary,
+                onChanged: (val) => setState(() => _isPrimary = val),
+                activeColor: const Color(0xFF00796B),
+                contentPadding: EdgeInsets.zero,
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: _handleSubmit,
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00796B), foregroundColor: Colors.white),
+          child: const Text('Add Vehicle'),
+        ),
+      ],
     );
   }
 }
