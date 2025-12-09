@@ -190,6 +190,31 @@ class Station {
     required this.pricePerUnit,
     required this.connectorType, // <--- NEW REQUIRED PARAMETER
   });
+
+  // --- NEW: DYNAMIC PRICING LOGIC ---
+  double getDynamicPrice() {
+    // Peak hours: 9 AM (9) to 9 PM (21)
+    final hour = DateTime.now().hour;
+    final isPeakHour = hour >= 9 && hour <= 21;
+    final multiplier = isPeakHour ? 1.2 : 0.8; // 20% increase for peak, 20% discount for off-peak
+
+    // Solar stations get a slightly smaller premium in off-peak hours
+    if (isSolarPowered) {
+      return pricePerUnit * (isPeakHour ? 1.1 : 0.85);
+    }
+
+    return pricePerUnit * multiplier;
+  }
+
+  // Helper to determine if pricing is currently dynamic
+  String getPricingStatus() {
+    final hour = DateTime.now().hour;
+    if (hour >= 9 && hour <= 21) {
+      return 'Peak Hours (+20%)';
+    } else {
+      return 'Off-Peak Discount (-20%)';
+    }
+  }
 }
 
 class Transaction {
@@ -1173,6 +1198,9 @@ class StationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     bool isAvailable = station.availablePorts > 0;
     bool hasParking = station.availableParking > 0;
+    final dynamicPrice = station.getDynamicPrice();
+    final isPeak = DateTime.now().hour >= 9 && DateTime.now().hour <= 21;
+
 
     return Card(
       child: InkWell(
@@ -1258,7 +1286,13 @@ class StationCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Text('Parking: ${station.availableParking}/${station.parkingSpaces}', style: const TextStyle(fontSize: 13)),
                   const Spacer(),
-                  Text('₹${station.pricePerUnit}/kWh', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('₹${dynamicPrice.toStringAsFixed(2)}/kWh', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
+                      Text(station.getPricingStatus(), style: TextStyle(fontSize: 10, color: isPeak ? Colors.redAccent : Colors.green)),
+                    ],
+                  ),
                 ],
               ),
             ],
@@ -1672,10 +1706,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                     color: Colors.green,
                     icon: Icons.local_parking)),
                 const SizedBox(width: 12),
-                Expanded(child: _InfoBox(title: 'Price',
-                    value: '₹${widget.station.pricePerUnit}/kWh',
-                    color: const Color(0xFF00796B),
-                    icon: Icons.currency_rupee)),
+                Expanded(child: _InfoBox(title: 'Price', value: '₹${widget.station.getDynamicPrice().toStringAsFixed(2)}/kWh', color: const Color(0xFF00796B), icon: Icons.currency_rupee)),
               ],
             ),
             if (widget.station.isSharedPower)
@@ -1992,7 +2023,8 @@ class ChargingScreen extends StatefulWidget {
 }
 
 // --- CHARGING SCREEN (UPDATED with Pause/Resume and Charge Limit) ---
-class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStateMixin { // <--- ADDED TickerProviderStateMixin
+// --- CHARGING SCREEN (FINAL CODE WITH ETFC AND ANIMATION FIXES) ---
+class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStateMixin {
   Timer? _timer;
   double _cost = 0.0;
   double _unitsConsumed = 0.0;
@@ -2004,7 +2036,7 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
   double _chargeLimit = 0.0;
 
   // Animation controller for the pulse effect
-  late AnimationController _pulseController; // <--- ADDED CONTROLLER
+  late AnimationController _pulseController; // Initialized in initState
 
   // Safely find the primary vehicle once
   final Vehicle? _chargingVehicle = currentUser.vehicles
@@ -2017,17 +2049,48 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
   double _maxKWh = 0.0;
   int _currentSOC = 0;
 
+  // --- ESTIMATED TIME TO FULL CHARGE (ETFC) CALCULATION ---
+  String getEstimatedTime() {
+    // Return status text if charging is paused or complete
+    if (_currentSOC >= 100 || _isPaused) return _getStatusText();
+
+    // Assumed rate: 0.1 kWh per second * 60 seconds = 6 kWh/min.
+    // This matches the 0.1 added per second in the simulation.
+    const double assumedKWhPerMinute = 0.5;
+
+    double currentKWhInBattery = _startKWh + _unitsConsumed;
+    double remainingKWh = _maxKWh - currentKWhInBattery;
+
+    // If the limit is set lower than max, calculate time to that limit.
+    if (_chargeLimit < _maxKWh) {
+      remainingKWh = _chargeLimit - currentKWhInBattery;
+    }
+
+    if (remainingKWh <= 0) return "< 1 min";
+
+    int minutes = (remainingKWh / assumedKWhPerMinute).ceil();
+
+    if (minutes <= 0) return "< 1 min";
+    if (minutes < 60) return "$minutes min";
+
+    int hours = minutes ~/ 60;
+    int mins = minutes % 60;
+    return "${hours}h ${mins}m";
+  }
+  // --------------------------------------------------------
+
   @override
   void initState() {
     super.initState();
     _startTime = DateTime.now();
 
-    // Initialize Animation Controller
+    // Initialize Animation Controller for pulse effect (FIXED ANIMATION)
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2000),
-    )..repeat(); // <--- START LOOPING
+    )..repeat();
 
+    // --- SAFE EXIT LOGIC ---
     if (_chargingVehicle == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2041,12 +2104,14 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
       });
       return;
     }
+    // ----------------------------
 
+    // Initialize charging parameters only if vehicle is present
     _maxKWh = _chargingVehicle!.batteryCapacityKWh;
     _startKWh = _maxKWh * (_chargingVehicle!.initialSOCPercent / 100);
     _unitsConsumed = 0.0;
     _currentSOC = _chargingVehicle!.initialSOCPercent;
-    _chargeLimit = _maxKWh; // Default limit is 100% (full battery)
+    _chargeLimit = _maxKWh;
 
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (mounted && _active && !_isPaused) {
@@ -2074,17 +2139,19 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
   @override
   void dispose() {
     _timer?.cancel();
-    _pulseController.dispose(); // <--- DISPOSE CONTROLLER
+    _pulseController.dispose(); // Dispose the controller
     super.dispose();
   }
 
+  // --- NEW HELPER METHODS ---
+
   Color _getStateColor() {
     if (_currentSOC >= 100) {
-      return const Color(0xFF00FF88); // Green for complete
+      return const Color(0xFF00FF88);
     } else if (_isPaused) {
-      return const Color(0xFFFF4757); // Red for paused
+      return const Color(0xFFFF4757);
     } else {
-      return const Color(0xFF00E5FF); // Cyan/blue for charging
+      return const Color(0xFF00E5FF);
     }
   }
 
@@ -2098,8 +2165,7 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
     }
   }
 
-  Widget _buildStatRow(String label, String value, IconData icon,
-      Color iconColor) {
+  Widget _buildStatRow(String label, String value, IconData icon, Color iconColor) {
     return Row(
       children: [
         Container(
@@ -2150,64 +2216,54 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
     setState(() {
       _isPaused = !_isPaused;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(
-            _isPaused ? 'Charging Paused.' : 'Charging Resumed.')),
+        SnackBar(content: Text(_isPaused ? 'Charging Paused.' : 'Charging Resumed.')),
       );
     });
   }
 
   void _showChargeLimitDialog() {
-    final controller = TextEditingController(
-        text: _chargeLimit < _maxKWh ? _chargeLimit.toStringAsFixed(1) : '');
+    final controller = TextEditingController(text: _chargeLimit < _maxKWh ? _chargeLimit.toStringAsFixed(1) : '');
 
     showDialog(
       context: context,
-      builder: (context) =>
-          AlertDialog(
-            title: const Text('Set Charge Limit (kWh)'),
-            content: TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                    labelText: 'Energy Limit (kWh) [Max: ${_maxKWh
-                        .toStringAsFixed(1)} kWh]',
-                    hintText: 'e.g., 20.0',
-                    border: const OutlineInputBorder()
-                )
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel')),
-              ElevatedButton(
-                  onPressed: () {
-                    final val = double.tryParse(controller.text) ?? 0;
-                    if (val > 0.0 && val <= _maxKWh) {
-                      setState(() => _chargeLimit = val);
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(
-                            'Charge limit set to ${val.toStringAsFixed(
-                                1)} kWh')),
-                      );
-                    } else if (val > _maxKWh) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(
-                            'Limit cannot exceed max capacity (${_maxKWh
-                                .toStringAsFixed(1)} kWh)')),
-                      );
-                    } else {
-                      setState(() => _chargeLimit = _maxKWh);
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text(
-                            'Charge limit removed (Charging to 100%).')),
-                      );
-                    }
-                  },
-                  child: const Text('Set Limit')
-              ),
-            ],
+      builder: (context) => AlertDialog(
+        title: const Text('Set Charge Limit (kWh)'),
+        content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+                labelText: 'Energy Limit (kWh) [Max: ${_maxKWh.toStringAsFixed(1)} kWh]',
+                hintText: 'e.g., 20.0',
+                border: const OutlineInputBorder()
+            )
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () {
+                final val = double.tryParse(controller.text) ?? 0;
+                if (val > 0.0 && val <= _maxKWh) {
+                  setState(() => _chargeLimit = val);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Charge limit set to ${val.toStringAsFixed(1)} kWh')),
+                  );
+                } else if (val > _maxKWh) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Limit cannot exceed max capacity (${_maxKWh.toStringAsFixed(1)} kWh)')),
+                  );
+                } else {
+                  setState(() => _chargeLimit = _maxKWh);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Charge limit removed (Charging to 100%).')),
+                  );
+                }
+              },
+              child: const Text('Set Limit')
           ),
+        ],
+      ),
     );
   }
 
@@ -2219,37 +2275,30 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
 
     if (limitReached) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Charge limit of ${_chargeLimit.toStringAsFixed(
-            1)} kWh reached! Processing payment...')),
+        SnackBar(content: Text('Charge limit of ${_chargeLimit.toStringAsFixed(1)} kWh reached! Processing payment...')),
       );
     }
     _showPaymentDialog();
   }
 
 
-  // --- BUILD METHOD WITH INTEGRATED PREMIUM VISUALIZATION ---
+  // --- BUILD METHOD ---
 
   @override
   Widget build(BuildContext context) {
     if (_chargingVehicle == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: Text(
-            "Initializing...", style: TextStyle(color: Colors.white))),
+        body: Center(child: Text("Initializing...", style: TextStyle(color: Colors.white))),
       );
     }
 
-    final duration = _startTime != null
-        ? DateTime.now().difference(_startTime!)
-        : Duration.zero;
-    final isDark = Theme
-        .of(context)
-        .brightness == Brightness.dark;
+    final duration = _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0A0E27) : const Color(
-          0xFF00796B),
+      backgroundColor: isDark ? const Color(0xFF0A0E27) : const Color(0xFF00796B),
       appBar: AppBar(
         title: Text("Charging ${_chargingVehicle!.make}"),
         backgroundColor: Colors.transparent,
@@ -2258,11 +2307,8 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
         elevation: 0,
         actions: [
           IconButton(
-            icon: Icon(Icons.speed,
-                color: _chargeLimit < _maxKWh ? Colors.amberAccent : Colors
-                    .white),
-            tooltip: _chargeLimit < _maxKWh ? 'Limit: ${_chargeLimit
-                .toStringAsFixed(1)} kWh' : 'Charging to 100%',
+            icon: Icon(Icons.speed, color: _chargeLimit < _maxKWh ? Colors.amberAccent : Colors.white),
+            tooltip: _chargeLimit < _maxKWh ? 'Limit: ${_chargeLimit.toStringAsFixed(1)} kWh' : 'Charging to 100%',
             onPressed: _active ? _showChargeLimitDialog : null,
           ),
         ],
@@ -2272,6 +2318,7 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             children: [
+              // --- START REPLACEMENT BLOCK (Expanded Content) ---
               Expanded(
                 child: SingleChildScrollView(
                   child: Column(
@@ -2279,7 +2326,7 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                     children: [
                       const SizedBox(height: 20),
 
-                      // --- PREMIUM CHARGING VISUALIZATION (USING CONTROLLER) ---
+                      // --- PREMIUM CHARGING VISUALIZATION (USING ANIMATED BUILDER) ---
                       SizedBox(
                         width: 280,
                         height: 280,
@@ -2411,9 +2458,9 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                               ],
                             ),
 
-                            // Animated pulse effect (only when charging, not when complete)
+                            // Animated pulse effect (using the controller)
                             if (!_isPaused && _currentSOC < 100)
-                              AnimatedBuilder( // <--- USING ANIMATED BUILDER WITH CONTROLLER
+                              AnimatedBuilder(
                                 animation: _pulseController,
                                 builder: (context, child) {
                                   return Container(
@@ -2467,8 +2514,8 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
 
                       // --- PREMIUM COST DISPLAY ---
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 32, vertical: 28),
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
@@ -2504,15 +2551,14 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                             ),
                             const SizedBox(height: 14),
                             ShaderMask(
-                              shaderCallback: (bounds) =>
-                                  const LinearGradient(
-                                    colors: [
-                                      Color(0xFFFFFFFF),
-                                      Color(0xFFFFD700),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  ).createShader(bounds),
+                              shaderCallback: (bounds) => const LinearGradient(
+                                colors: [
+                                  Color(0xFFFFFFFF),
+                                  Color(0xFFFFD700),
+                                ],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ).createShader(bounds),
                               child: Text(
                                 '₹${_cost.toStringAsFixed(2)}',
                                 style: const TextStyle(
@@ -2530,8 +2576,9 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
 
                       const SizedBox(height: 32),
 
-                      // --- ENHANCED STATS BOX ---
+                      // --- ENHANCED STATS BOX (ADDED ETFC) ---
                       Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.06),
@@ -2551,11 +2598,18 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                             ),
                             const SizedBox(height: 18),
                             _buildStatRow(
-                              'Duration',
-                              '${duration.inMinutes}m ${duration.inSeconds %
-                                  60}s',
+                              'Time Elapsed',
+                              '${duration.inMinutes}m ${duration.inSeconds % 60}s',
                               Icons.schedule_rounded,
                               const Color(0xFFFFB800),
+                            ),
+                            const SizedBox(height: 18),
+                            // NEW ROW: ESTIMATED TIME
+                            _buildStatRow(
+                              'ETFC (Full Charge)',
+                              getEstimatedTime(), // <--- DISPLAY ETFC
+                              Icons.timer_outlined,
+                              const Color(0xFF00FF88),
                             ),
                             const SizedBox(height: 18),
                             _buildStatRow(
@@ -2590,13 +2644,10 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white54),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         ),
                         icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
-                        label: Text(_isPaused ? "Resume" : "Pause",
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold)),
+                        label: Text(_isPaused ? "Resume" : "Pause", style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -2609,19 +2660,16 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red.shade700,
                             foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
                           icon: const Icon(Icons.stop_circle_outlined),
-                          label: const Text("Stop & Pay", style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
+                          label: const Text("Stop & Pay", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ),
                   ],
                 )
-                    : const Text('Processing payment...',
-                    style: TextStyle(color: Colors.white70)),
+                    : const Text('Processing payment...', style: TextStyle(color: Colors.white70)),
               ),
             ],
           ),
@@ -2642,121 +2690,100 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (context) =>
-          AlertDialog(
-            title: const Text('Payment Summary'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Energy Charges:'),
-                      Text('₹${_cost.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ]),
-                const SizedBox(height: 8),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('GST (5%):'),
-                      Text('₹${gst.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ]),
-                const Divider(height: 20),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Booking Refund:'),
-                      const Text('- ₹50.00', style: TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.green)),
-                    ]),
-                const Divider(height: 20),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Total Payable:', style: TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold)),
-                      Text('₹${totalPayable.toStringAsFixed(2)}',
-                          style: const TextStyle(fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF00796B))),
-                    ]),
-              ],
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-                      if (mounted && _active && !_isPaused) {
-                        setState(() {
-                          double newUnitsConsumed = _unitsConsumed + 0.1;
-                          double totalKWh = _startKWh + newUnitsConsumed;
+      builder: (context) => AlertDialog(
+        title: const Text('Payment Summary'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('Energy Charges:'),
+              Text('₹${_cost.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ]),
+            const SizedBox(height: 8),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('GST (5%):'),
+              Text('₹${gst.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            ]),
+            const Divider(height: 20),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('Booking Refund:'),
+              const Text('- ₹50.00', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+            ]),
+            const Divider(height: 20),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              const Text('Total Payable:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              Text('₹${totalPayable.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
+            ]),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+                  if (mounted && _active && !_isPaused) {
+                    setState(() {
+                      double newUnitsConsumed = _unitsConsumed + 0.1;
+                      double totalKWh = _startKWh + newUnitsConsumed;
 
-                          if (totalKWh >= _chargeLimit) {
-                            _unitsConsumed = _chargeLimit - _startKWh;
-                            _currentSOC = 100;
-                            _cost = _unitsConsumed * widget.station
-                                .pricePerUnit;
-                            _stopCharging(limitReached: true);
-                            return;
-                          }
-
-                          _unitsConsumed = newUnitsConsumed;
-                          _cost = _unitsConsumed * widget.station.pricePerUnit;
-                          _currentSOC = ((totalKWh / _maxKWh) * 100).round();
-                        });
+                      if (totalKWh >= _chargeLimit) {
+                        _unitsConsumed = _chargeLimit - _startKWh;
+                        _currentSOC = 100;
+                        _cost = _unitsConsumed * widget.station.pricePerUnit;
+                        _stopCharging(limitReached: true);
+                        return;
                       }
+
+                      _unitsConsumed = newUnitsConsumed;
+                      _cost = _unitsConsumed * widget.station.pricePerUnit;
+                      _currentSOC = ((totalKWh / _maxKWh) * 100).round();
                     });
-                    setState(() => _active = true);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Charging resumed!'),
-                        duration: Duration(seconds: 1)));
-                  },
-                  child: const Text('Return to Charging')
-              ),
-
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    currentUser.walletBalance -= totalPayable;
-                    widget.station.availablePorts += 1;
-
-                    if (activeBooking != null) {
-                      activeBooking.status = 'completed';
-                      activeBooking.cost = totalPayable + 50;
-                      activeBooking.endTime = DateTime.now();
-
-                      currentUser.transactions.insert(0, Transaction(
-                          id: 'T_${DateTime
-                              .now()
-                              .millisecondsSinceEpoch}',
-                          title: 'EV Charge - ${widget.station.name}',
-                          date: DateTime.now(),
-                          amount: totalPayable + 50,
-                          isCredit: false
-                      ));
-                    }
-                  });
-
-                  // --- DISPATCH NOTIFICATION FOR PAYMENT SUCCESS ---
-                  globalNotificationManager.addNotification(
-                    title: 'Payment Successful!',
-                    body: 'You paid ₹${totalPayable.toStringAsFixed(
-                        2)} for ${_unitsConsumed.toStringAsFixed(2)} kWh.',
-                    read: false,
-                  );
-                  // -------------------------------------------------
-
-                  Navigator.pop(context);
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const MainNavigation()),
-                        (route) => false,
-                  );
-                },
-                child: const Text('Pay Securely'),
-              ),
-            ],
+                  }
+                });
+                setState(() => _active = true);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Charging resumed!'), duration: Duration(seconds: 1)));
+              },
+              child: const Text('Return to Charging')
           ),
+
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                currentUser.walletBalance -= totalPayable;
+                widget.station.availablePorts += 1;
+
+                if (activeBooking != null) {
+                  activeBooking.status = 'completed';
+                  activeBooking.cost = totalPayable + 50;
+                  activeBooking.endTime = DateTime.now();
+
+                  currentUser.transactions.insert(0, Transaction(
+                      id: 'T_${DateTime.now().millisecondsSinceEpoch}',
+                      title: 'EV Charge - ${widget.station.name}',
+                      date: DateTime.now(),
+                      amount: totalPayable + 50,
+                      isCredit: false
+                  ));
+                }
+              });
+
+              globalNotificationManager.addNotification(
+                title: 'Payment Successful!',
+                body: 'You paid ₹${totalPayable.toStringAsFixed(2)} for ${_unitsConsumed.toStringAsFixed(2)} kWh.',
+                read: false,
+              );
+
+              Navigator.pop(context);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const MainNavigation()),
+                    (route) => false,
+              );
+            },
+            child: const Text('Pay Securely'),
+          ),
+        ],
+      ),
     );
   }
 }
