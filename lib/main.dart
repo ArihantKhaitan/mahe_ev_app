@@ -1840,6 +1840,7 @@ class ChargingScreen extends StatefulWidget {
 
 // --- CHARGING SCREEN (UPDATED with Pause/Resume and Charge Limit) ---
 // --- CHARGING SCREEN (FIXED: Safe Exit if No Vehicle) ---
+// --- CHARGING SCREEN (FINAL PREMIUM VISUALIZATION INTEGRATED) ---
 class _ChargingScreenState extends State<ChargingScreen> {
   Timer? _timer;
   double _cost = 0.0;
@@ -1865,10 +1866,9 @@ class _ChargingScreenState extends State<ChargingScreen> {
     super.initState();
     _startTime = DateTime.now();
 
-    // --- SAFE EXIT LOGIC (NEW) ---
+    // --- SAFE EXIT LOGIC ---
     if (_chargingVehicle == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // Show a helpful message and pop the screen safely
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Cannot start charging. Please add a primary EV in Profile > Vehicles.'),
@@ -1878,15 +1878,15 @@ class _ChargingScreenState extends State<ChargingScreen> {
         );
         Navigator.pop(context);
       });
-      return; // Stop initialization if no vehicle is present
+      return;
     }
     // ----------------------------
 
     // Initialize charging parameters only if vehicle is present
-    _maxKWh = _chargingVehicle.batteryCapacityKWh;
-    _startKWh = _maxKWh * (_chargingVehicle.initialSOCPercent / 100);
+    _maxKWh = _chargingVehicle!.batteryCapacityKWh;
+    _startKWh = _maxKWh * (_chargingVehicle!.initialSOCPercent / 100);
     _unitsConsumed = 0.0;
-    _currentSOC = _chargingVehicle.initialSOCPercent;
+    _currentSOC = _chargingVehicle!.initialSOCPercent;
     _chargeLimit = _maxKWh; // Default limit is 100% (full battery)
 
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -1918,7 +1918,73 @@ class _ChargingScreenState extends State<ChargingScreen> {
     super.dispose();
   }
 
-  // --- CONTROL LOGIC METHODS (Unchanged from previous turn) ---
+  // --- NEW HELPER METHODS FOR PREMIUM VISUALIZATION ---
+
+  Color _getStateColor() {
+    if (_currentSOC >= 100) {
+      return const Color(0xFF00FF88); // Green for complete
+    } else if (_isPaused) {
+      return const Color(0xFFFF4757); // Red for paused
+    } else {
+      return const Color(0xFF00E5FF); // Cyan/blue for charging
+    }
+  }
+
+  String _getStatusText() {
+    if (_currentSOC >= 100) {
+      return 'COMPLETE';
+    } else if (_isPaused) {
+      return 'PAUSED';
+    } else {
+      return 'CHARGING';
+    }
+  }
+
+  Widget _buildStatRow(String label, String value, IconData icon, Color iconColor) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: iconColor,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.6),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- CONTROL LOGIC METHODS ---
 
   void _togglePause() {
     if (!_active) return;
@@ -1990,36 +2056,31 @@ class _ChargingScreenState extends State<ChargingScreen> {
     _showPaymentDialog();
   }
 
-  // --- BUILD METHOD (Updated for Safe Exit) ---
+
+  // --- BUILD METHOD WITH INTEGRATED PREMIUM VISUALIZATION ---
 
   @override
   Widget build(BuildContext context) {
-    // Check if we exited early in initState (Vehicle == null).
-    // If _chargingVehicle is null, this widget tree will not be built and
-    // the app will have navigated back. But we still need a safe fallback.
     if (_chargingVehicle == null) {
-      // This case should be rare, as initState should handle navigation, but it prevents crashes.
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(child: Text("Initializing...", style: TextStyle(color: Colors.white))),
       );
     }
 
-    // Normal build logic continues if vehicle is found
     final duration = _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF001F1A) : const Color(0xFF00796B),
+      backgroundColor: isDark ? const Color(0xFF0A0E27) : const Color(0xFF00796B),
       appBar: AppBar(
-        title: Text("Charging ${_chargingVehicle.make}"),
+        title: Text("Charging ${_chargingVehicle!.make}"),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
         elevation: 0,
         actions: [
-          // Charge Limit Button
           IconButton(
             icon: Icon(Icons.speed, color: _chargeLimit < _maxKWh ? Colors.amberAccent : Colors.white),
             tooltip: _chargeLimit < _maxKWh ? 'Limit: ${_chargeLimit.toStringAsFixed(1)} kWh' : 'Charging to 100%',
@@ -2029,117 +2090,295 @@ class _ChargingScreenState extends State<ChargingScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Column(
             children: [
+              // --- START REPLACEMENT BLOCK (Expanded Content) ---
               Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // --- CHARGING PROGRESS VISUALIZATION ---
-                    SizedBox(
-                      width: 180,
-                      height: 180,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // 1. Neon Circular Progress Indicator
-                          SizedBox(
-                            width: 180,
-                            height: 180,
-                            child: CircularProgressIndicator(
-                              value: _currentSOC / 100, // 0.0 to 1.0
-                              strokeWidth: 10,
-                              backgroundColor: Colors.white.withOpacity(0.1),
-                              color: _isPaused ? Colors.grey : Colors.cyanAccent, // Neon Color
-                            ),
-                          ),
-                          // 2. Inner Content
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '$_currentSOC%',
-                                style: const TextStyle(
-                                  fontSize: 48,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.cyanAccent, // Neon Text
-                                  shadows: [
-                                    Shadow(color: Colors.cyan, blurRadius: 10.0), // Neon Glow
-                                  ],
-                                ),
-                              ),
-                              Text(
-                                _isPaused ? 'PAUSED' : 'CHARGING',
-                                style: TextStyle(
-                                  color: _isPaused ? Colors.grey : Colors.lightGreenAccent,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ],
-                          ),
-                          // 3. Charging Bolt Indicator
-                          if (!_isPaused)
-                            const Positioned(
-                              top: 20,
-                              right: 20,
-                              child: Icon(Icons.flash_on, color: Colors.amber, size: 30),
-                            ),
-                        ],
-                      ),
-                    ),
-                    // ----------------------------------------
-                    const SizedBox(height: 30),
-                    const Text('LIVE COST', style: TextStyle(color: Colors.white54, fontSize: 14, letterSpacing: 2)),
-                    const SizedBox(height: 10),
-                    Text(
-                      '₹ ${_cost.toStringAsFixed(2)}',
-                      style: const TextStyle(fontSize: 56, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    const SizedBox(height: 30),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 20),
 
-                    // Stats Box
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(16),
+                      // --- PREMIUM CHARGING VISUALIZATION ---
+                      SizedBox(
+                        width: 280,
+                        height: 280,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Outer glow effect with state-based colors
+                            Container(
+                              width: 280,
+                              height: 280,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _getStateColor().withOpacity(0.4),
+                                    blurRadius: 70,
+                                    spreadRadius: 15,
+                                  ),
+                                ],
+                              ),
+                            ),
+
+                            // Secondary ring (background track)
+                            SizedBox(
+                              width: 260,
+                              height: 260,
+                              child: CircularProgressIndicator(
+                                value: 1.0,
+                                strokeWidth: 4,
+                                backgroundColor: Colors.transparent,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white.withOpacity(0.08),
+                                ),
+                                strokeCap: StrokeCap.round,
+                              ),
+                            ),
+
+                            // Main progress ring with animated fill
+                            SizedBox(
+                              width: 260,
+                              height: 260,
+                              child: TweenAnimationBuilder<double>(
+                                duration: const Duration(milliseconds: 800),
+                                curve: Curves.easeOutCubic,
+                                tween: Tween<double>(
+                                  begin: 0,
+                                  end: _currentSOC / 100,
+                                ),
+                                builder: (context, value, child) => CircularProgressIndicator(
+                                  value: value,
+                                  strokeWidth: 16,
+                                  backgroundColor: Colors.transparent,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    _getStateColor(),
+                                  ),
+                                  strokeCap: StrokeCap.round,
+                                ),
+                              ),
+                            ),
+
+                            // Inner gradient circle background
+                            Container(
+                              width: 200,
+                              height: 200,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: RadialGradient(
+                                  colors: [
+                                    _getStateColor().withOpacity(0.15),
+                                    Colors.transparent,
+                                  ],
+                                  stops: const [0.0, 1.0],
+                                ),
+                              ),
+                            ),
+
+                            // Center content
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // SOC Percentage with premium styling
+                                ShaderMask(
+                                  shaderCallback: (bounds) => LinearGradient(
+                                    colors: [
+                                      Colors.white,
+                                      _getStateColor(),
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  ).createShader(bounds),
+                                  child: Text(
+                                    '$_currentSOC%',
+                                    style: const TextStyle(
+                                      fontSize: 80,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      height: 1.0,
+                                      letterSpacing: -1,
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 8),
+
+                                // Battery status label with state-based styling
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: _getStateColor().withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: _getStateColor().withOpacity(0.4),
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _getStatusText(),
+                                    style: TextStyle(
+                                      color: _getStateColor(),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Success checkmark animation when complete
+                            if (_currentSOC >= 100)
+                              Positioned(
+                                bottom: 30,
+                                child: TweenAnimationBuilder<double>(
+                                  duration: const Duration(milliseconds: 600),
+                                  curve: Curves.elasticOut,
+                                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                                  builder: (context, value, child) {
+                                    return Transform.scale(
+                                      scale: value,
+                                      child: Container(
+                                        width: 60,
+                                        height: 60,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF00FF88).withOpacity(0.2),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.check_circle_rounded,
+                                          color: Color(0xFF00FF88),
+                                          size: 40,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Units Consumed', style: TextStyle(color: Colors.white70)),
-                              Text('${_unitsConsumed.toStringAsFixed(2)} kWh', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+
+                      const SizedBox(height: 40),
+
+                      // --- PREMIUM COST DISPLAY ---
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              const Color(0xFFFFB800).withOpacity(0.12),
+                              const Color(0xFFFF8C00).withOpacity(0.06),
                             ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                          const Divider(color: Colors.white24, height: 20),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Duration', style: TextStyle(color: Colors.white70)),
-                              Text('${duration.inMinutes}m ${duration.inSeconds % 60}s', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            ],
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: const Color(0xFFFFB800).withOpacity(0.3),
+                            width: 1.5,
                           ),
-                          const Divider(color: Colors.white24, height: 20),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Rate', style: TextStyle(color: Colors.white70)),
-                              Text('₹${widget.station.pricePerUnit}/kWh', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ],
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFFFB800).withOpacity(0.25),
+                              blurRadius: 30,
+                              spreadRadius: -5,
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            const Text(
+                              'LIVE COST',
+                              style: TextStyle(
+                                color: Color(0xFFFFB800),
+                                fontSize: 12,
+                                letterSpacing: 2.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            ShaderMask(
+                              shaderCallback: (bounds) => const LinearGradient(
+                                colors: [
+                                  Color(0xFFFFFFFF),
+                                  Color(0xFFFFD700),
+                                ],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ).createShader(bounds),
+                              child: Text(
+                                '₹${_cost.toStringAsFixed(2)}',
+                                style: const TextStyle(
+                                  fontSize: 56,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  height: 1.0,
+                                  letterSpacing: -1,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+
+                      const SizedBox(height: 32),
+
+                      // --- ENHANCED STATS BOX ---
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.1),
+                            width: 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            _buildStatRow(
+                              'Units Consumed',
+                              '${_unitsConsumed.toStringAsFixed(2)} kWh',
+                              Icons.bolt_rounded,
+                              const Color(0xFF00E5FF),
+                            ),
+                            const SizedBox(height: 18),
+                            _buildStatRow(
+                              'Duration',
+                              '${duration.inMinutes}m ${duration.inSeconds % 60}s',
+                              Icons.schedule_rounded,
+                              const Color(0xFFFFB800),
+                            ),
+                            const SizedBox(height: 18),
+                            _buildStatRow(
+                              'Rate',
+                              '₹${widget.station.pricePerUnit}/kWh',
+                              Icons.payments_rounded,
+                              const Color(0xFF00FF88),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+                    ],
+                  ),
                 ),
               ),
+              // --- END REPLACEMENT BLOCK ---
 
-              // Control Buttons
-              if (_active)
-                Row(
+              // Control Buttons (Remains below the Expanded block)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: _active
+                    ? Row(
                   children: [
                     // Pause/Resume Button
                     SizedBox(
@@ -2175,8 +2414,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
                     ),
                   ],
                 )
-              else
-                const Text('Processing payment...', style: TextStyle(color: Colors.white70)),
+                    : const Text('Processing payment...', style: TextStyle(color: Colors.white70)),
+              ),
             ],
           ),
         ),
@@ -2184,27 +2423,23 @@ class _ChargingScreenState extends State<ChargingScreen> {
     );
   }
 
-  // --- FIX: _showPaymentDialog to allow dismissal/return ---
-  // --- FIX: _showPaymentDialog to correctly mark booking as 'completed' ---
   void _showPaymentDialog() {
     double gst = _cost * 0.05; // 5% GST
     double totalPayable = (_cost + gst) - 50; // Cost + GST - Booking Refund
     if (totalPayable < 0) totalPayable = 0;
 
     // Find the active booking for this station
-    // Assumes there's only one active booking per station for simplicity
     Booking? activeBooking = currentUser.bookings.firstWhereOrNull(
             (b) => b.stationId == widget.station.id && b.status == 'active');
 
     showDialog(
       context: context,
-      barrierDismissible: true, // <--- ALLOW TAPPING OUT TO DISMISS
+      barrierDismissible: true,
       builder: (context) => AlertDialog(
         title: const Text('Payment Summary'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ... (Existing content remains the same)
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               const Text('Energy Charges:'),
               Text('₹${_cost.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -2227,11 +2462,9 @@ class _ChargingScreenState extends State<ChargingScreen> {
           ],
         ),
         actions: [
-          // RETURN/CANCEL BUTTON
           TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                // Resume the charging session logic (re-start timer, set active=true)
                 _timer = Timer.periodic(const Duration(seconds: 1), (t) {
                   if (mounted && _active && !_isPaused) {
                     setState(() {
@@ -2258,21 +2491,17 @@ class _ChargingScreenState extends State<ChargingScreen> {
               child: const Text('Return to Charging')
           ),
 
-          // PAY SECURELY BUTTON
           ElevatedButton(
             onPressed: () {
-              // 1. UPDATE GLOBAL STATE
               setState(() {
                 currentUser.walletBalance -= totalPayable;
                 widget.station.availablePorts += 1;
 
-                // 2. UPDATE BOOKING STATUS (THE FIX)
                 if (activeBooking != null) {
                   activeBooking.status = 'completed';
-                  activeBooking.cost = totalPayable + 50; // Total cost including initial refundable fee
+                  activeBooking.cost = totalPayable + 50;
                   activeBooking.endTime = DateTime.now();
 
-                  // Add transaction history for completion
                   currentUser.transactions.insert(0, Transaction(
                       id: 'T_${DateTime.now().millisecondsSinceEpoch}',
                       title: 'EV Charge - ${widget.station.name}',
@@ -2282,7 +2511,6 @@ class _ChargingScreenState extends State<ChargingScreen> {
                   ));
                 }
               });
-              // 3. NAVIGATE AWAY
               Navigator.pop(context);
               Navigator.pushAndRemoveUntil(
                 context,
