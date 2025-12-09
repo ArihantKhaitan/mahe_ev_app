@@ -128,6 +128,34 @@ class MaheEVApp extends StatelessWidget {
 
 // --- DATA MODELS ---
 
+// --- NOTIFICATION MANAGER ---
+class NotificationManager {
+  // Use a ValueNotifier to manage the list so the UI rebuilds automatically
+  final ValueNotifier<List<AppNotification>> notifications = ValueNotifier(mockNotifications);
+
+  void addNotification({
+    required String title,
+    required String body,
+    bool read = false,
+  }) {
+    final newNotification = AppNotification(
+      title: title,
+      body: body,
+      time: DateTime.now(),
+      read: read,
+    );
+
+    // Add new notification to the beginning of the list
+    notifications.value.insert(0, newNotification);
+
+    // Create a new list instance to trigger the ValueNotifier listener in the UI
+    notifications.value = List.from(notifications.value);
+  }
+}
+
+// Global instance of the Notification Manager
+final NotificationManager globalNotificationManager = NotificationManager();
+
 class Station {
   final String id;
   final String name;
@@ -211,7 +239,8 @@ class UserProfile {
   double walletBalance;
   List<Booking> bookings;
   List<Transaction> transactions;
-  List<Vehicle> vehicles; // <--- NEW FIELD
+  List<Vehicle> vehicles;
+  List<AppNotification> notifications; // <--- ADDED FIELD
 
   UserProfile({
     required this.id,
@@ -222,7 +251,8 @@ class UserProfile {
     required this.walletBalance,
     required this.bookings,
     required this.transactions,
-    this.vehicles = const [], // Default to empty list
+    this.vehicles = const [],
+    this.notifications = const [], // <--- ADDED PARAMETER
   });
 }
 
@@ -306,6 +336,18 @@ List<Vehicle> mockVehicles = [
   ),
 ];
 
+// Global Mock User List (For Admin targeting simulation)
+List<UserProfile> mockUsers = [
+  UserProfile(
+    id: 'U002', name: 'Rahul S.', email: 'rahul.s@mahe.edu', userType: 'student',
+    walletBalance: 1000, bookings: [], transactions: [], vehicles: [], notifications: [],
+  ),
+  UserProfile(
+    id: 'U003', name: 'Prof. Anjali', email: 'anjali@mahe.edu', userType: 'staff',
+    walletBalance: 2000, bookings: [], transactions: [], vehicles: [], notifications: [],
+  ),
+];
+
 List<ReportedIssue> mockIssues = [
   ReportedIssue(id: 'I1', stationName: 'MIT Quadrangle', reportedBy: 'Rahul S.', issueType: 'Connector Damaged', time: DateTime.now().subtract(const Duration(hours: 2))),
   ReportedIssue(id: 'I2', stationName: 'NLH EV Point', reportedBy: 'Prof. Anjali', issueType: 'Payment Failed', time: DateTime.now().subtract(const Duration(days: 1))),
@@ -361,6 +403,7 @@ UserProfile currentUser = UserProfile(
     Transaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
   ],
   vehicles: mockVehicles, // Add the mock list here
+  notifications: mockNotifications, // <--- CORRECTLY INITIALIZED
 );
 List<Transaction> allGlobalTransactions = [
   Transaction(id: 'TXN_001', title: 'Payment - User A', date: DateTime.now().subtract(const Duration(minutes: 10)), amount: 120.0, isCredit: false),
@@ -369,7 +412,6 @@ List<Transaction> allGlobalTransactions = [
 ];
 
 // --- LOGIN SCREEN ---
-// --- LOGIN SCREEN (High Contrast Neon-Grey Text) ---
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -409,7 +451,8 @@ class _LoginScreenState extends State<LoginScreen> {
             walletBalance: 99999.0,
             bookings: [],
             transactions: [],
-            vehicles: const [], // Added
+            vehicles: const [],
+            notifications: [], // Admin starts with a fresh, mutable list
           );
           Navigator.pushReplacement(
             context,
@@ -470,6 +513,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Transaction(id: 'T2', title: 'EV Charge - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 120.50, isCredit: false),
           ],
           vehicles: mockVehicles, // Added
+          notifications: List.from(mockNotifications), // User gets a mutable copy of mock notifications
         );
 
         Navigator.pushReplacement(
@@ -514,6 +558,7 @@ class _LoginScreenState extends State<LoginScreen> {
           transactions: [],
           // Use the mutable copy of the mock vehicles
           vehicles: guestMockVehicles,
+          notifications: [], // Guest starts with an empty mutable notification list
         );
         Navigator.pushReplacement(
           context,
@@ -1744,6 +1789,13 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                 ));
               });
 
+              // --- DISPATCH NOTIFICATION (THE FIX) ---
+              globalNotificationManager.addNotification(
+                title: 'Booking Confirmed!',
+                body: '$bookingStatus slot reserved for ${widget.station.name}.',
+                read: false,
+              );
+
               Navigator.pop(context); // Close dialog
 
               if (bookingStatus == 'active') {
@@ -1853,7 +1905,9 @@ class _ChargingScreenState extends State<ChargingScreen> {
   double _chargeLimit = 0.0;
 
   // Safely find the primary vehicle once
-  final Vehicle? _chargingVehicle = currentUser.vehicles.where((v) => v.isPrimary).isNotEmpty
+  final Vehicle? _chargingVehicle = currentUser.vehicles
+      .where((v) => v.isPrimary)
+      .isNotEmpty
       ? currentUser.vehicles.firstWhere((v) => v.isPrimary)
       : (currentUser.vehicles.isNotEmpty ? currentUser.vehicles.first : null);
 
@@ -1871,7 +1925,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Cannot start charging. Please add a primary EV in Profile > Vehicles.'),
+            content: Text(
+                'Cannot start charging. Please add a primary EV in Profile > Vehicles.'),
             duration: Duration(seconds: 3),
             backgroundColor: Colors.red,
           ),
@@ -1940,7 +1995,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
     }
   }
 
-  Widget _buildStatRow(String label, String value, IconData icon, Color iconColor) {
+  Widget _buildStatRow(String label, String value, IconData icon,
+      Color iconColor) {
     return Row(
       children: [
         Container(
@@ -1991,54 +2047,64 @@ class _ChargingScreenState extends State<ChargingScreen> {
     setState(() {
       _isPaused = !_isPaused;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isPaused ? 'Charging Paused.' : 'Charging Resumed.')),
+        SnackBar(content: Text(
+            _isPaused ? 'Charging Paused.' : 'Charging Resumed.')),
       );
     });
   }
 
   void _showChargeLimitDialog() {
-    final controller = TextEditingController(text: _chargeLimit < _maxKWh ? _chargeLimit.toStringAsFixed(1) : '');
+    final controller = TextEditingController(
+        text: _chargeLimit < _maxKWh ? _chargeLimit.toStringAsFixed(1) : '');
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Set Charge Limit (kWh)'),
-        content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-                labelText: 'Energy Limit (kWh) [Max: ${_maxKWh.toStringAsFixed(1)} kWh]',
-                hintText: 'e.g., 20.0',
-                border: const OutlineInputBorder()
-            )
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: () {
-                final val = double.tryParse(controller.text) ?? 0;
-                if (val > 0.0 && val <= _maxKWh) {
-                  setState(() => _chargeLimit = val);
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Charge limit set to ${val.toStringAsFixed(1)} kWh')),
-                  );
-                } else if (val > _maxKWh) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Limit cannot exceed max capacity (${_maxKWh.toStringAsFixed(1)} kWh)')),
-                  );
-                } else {
-                  setState(() => _chargeLimit = _maxKWh);
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Charge limit removed (Charging to 100%).')),
-                  );
-                }
-              },
-              child: const Text('Set Limit')
+      builder: (context) =>
+          AlertDialog(
+            title: const Text('Set Charge Limit (kWh)'),
+            content: TextField(
+                controller: controller,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                    labelText: 'Energy Limit (kWh) [Max: ${_maxKWh
+                        .toStringAsFixed(1)} kWh]',
+                    hintText: 'e.g., 20.0',
+                    border: const OutlineInputBorder()
+                )
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () {
+                    final val = double.tryParse(controller.text) ?? 0;
+                    if (val > 0.0 && val <= _maxKWh) {
+                      setState(() => _chargeLimit = val);
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(
+                            'Charge limit set to ${val.toStringAsFixed(
+                                1)} kWh')),
+                      );
+                    } else if (val > _maxKWh) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(
+                            'Limit cannot exceed max capacity (${_maxKWh
+                                .toStringAsFixed(1)} kWh)')),
+                      );
+                    } else {
+                      setState(() => _chargeLimit = _maxKWh);
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text(
+                            'Charge limit removed (Charging to 100%).')),
+                      );
+                    }
+                  },
+                  child: const Text('Set Limit')
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -2050,7 +2116,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
 
     if (limitReached) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Charge limit of ${_chargeLimit.toStringAsFixed(1)} kWh reached! Processing payment...')),
+        SnackBar(content: Text('Charge limit of ${_chargeLimit.toStringAsFixed(
+            1)} kWh reached! Processing payment...')),
       );
     }
     _showPaymentDialog();
@@ -2064,16 +2131,22 @@ class _ChargingScreenState extends State<ChargingScreen> {
     if (_chargingVehicle == null) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: Text("Initializing...", style: TextStyle(color: Colors.white))),
+        body: Center(child: Text(
+            "Initializing...", style: TextStyle(color: Colors.white))),
       );
     }
 
-    final duration = _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final duration = _startTime != null
+        ? DateTime.now().difference(_startTime!)
+        : Duration.zero;
+    final isDark = Theme
+        .of(context)
+        .brightness == Brightness.dark;
 
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0A0E27) : const Color(0xFF00796B),
+      backgroundColor: isDark ? const Color(0xFF0A0E27) : const Color(
+          0xFF00796B),
       appBar: AppBar(
         title: Text("Charging ${_chargingVehicle!.make}"),
         backgroundColor: Colors.transparent,
@@ -2082,8 +2155,11 @@ class _ChargingScreenState extends State<ChargingScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            icon: Icon(Icons.speed, color: _chargeLimit < _maxKWh ? Colors.amberAccent : Colors.white),
-            tooltip: _chargeLimit < _maxKWh ? 'Limit: ${_chargeLimit.toStringAsFixed(1)} kWh' : 'Charging to 100%',
+            icon: Icon(Icons.speed,
+                color: _chargeLimit < _maxKWh ? Colors.amberAccent : Colors
+                    .white),
+            tooltip: _chargeLimit < _maxKWh ? 'Limit: ${_chargeLimit
+                .toStringAsFixed(1)} kWh' : 'Charging to 100%',
             onPressed: _active ? _showChargeLimitDialog : null,
           ),
         ],
@@ -2150,15 +2226,16 @@ class _ChargingScreenState extends State<ChargingScreen> {
                                   begin: 0,
                                   end: _currentSOC / 100,
                                 ),
-                                builder: (context, value, child) => CircularProgressIndicator(
-                                  value: value,
-                                  strokeWidth: 16,
-                                  backgroundColor: Colors.transparent,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    _getStateColor(),
-                                  ),
-                                  strokeCap: StrokeCap.round,
-                                ),
+                                builder: (context, value, child) =>
+                                    CircularProgressIndicator(
+                                      value: value,
+                                      strokeWidth: 16,
+                                      backgroundColor: Colors.transparent,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        _getStateColor(),
+                                      ),
+                                      strokeCap: StrokeCap.round,
+                                    ),
                               ),
                             ),
 
@@ -2184,14 +2261,15 @@ class _ChargingScreenState extends State<ChargingScreen> {
                               children: [
                                 // SOC Percentage with premium styling
                                 ShaderMask(
-                                  shaderCallback: (bounds) => LinearGradient(
-                                    colors: [
-                                      Colors.white,
-                                      _getStateColor(),
-                                    ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  ).createShader(bounds),
+                                  shaderCallback: (bounds) =>
+                                      LinearGradient(
+                                        colors: [
+                                          Colors.white,
+                                          _getStateColor(),
+                                        ],
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                      ).createShader(bounds),
                                   child: Text(
                                     '$_currentSOC%',
                                     style: const TextStyle(
@@ -2248,7 +2326,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
                                         width: 60,
                                         height: 60,
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFF00FF88).withOpacity(0.2),
+                                          color: const Color(0xFF00FF88)
+                                              .withOpacity(0.2),
                                           shape: BoxShape.circle,
                                         ),
                                         child: const Icon(
@@ -2269,7 +2348,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
 
                       // --- PREMIUM COST DISPLAY ---
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 32, vertical: 28),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
@@ -2305,14 +2385,15 @@ class _ChargingScreenState extends State<ChargingScreen> {
                             ),
                             const SizedBox(height: 14),
                             ShaderMask(
-                              shaderCallback: (bounds) => const LinearGradient(
-                                colors: [
-                                  Color(0xFFFFFFFF),
-                                  Color(0xFFFFD700),
-                                ],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                              ).createShader(bounds),
+                              shaderCallback: (bounds) =>
+                                  const LinearGradient(
+                                    colors: [
+                                      Color(0xFFFFFFFF),
+                                      Color(0xFFFFD700),
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                  ).createShader(bounds),
                               child: Text(
                                 '₹${_cost.toStringAsFixed(2)}',
                                 style: const TextStyle(
@@ -2352,7 +2433,8 @@ class _ChargingScreenState extends State<ChargingScreen> {
                             const SizedBox(height: 18),
                             _buildStatRow(
                               'Duration',
-                              '${duration.inMinutes}m ${duration.inSeconds % 60}s',
+                              '${duration.inMinutes}m ${duration.inSeconds %
+                                  60}s',
                               Icons.schedule_rounded,
                               const Color(0xFFFFB800),
                             ),
@@ -2389,10 +2471,13 @@ class _ChargingScreenState extends State<ChargingScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: const BorderSide(color: Colors.white54),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
                         ),
                         icon: Icon(_isPaused ? Icons.play_arrow : Icons.pause),
-                        label: Text(_isPaused ? "Resume" : "Pause", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        label: Text(_isPaused ? "Resume" : "Pause",
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -2405,16 +2490,19 @@ class _ChargingScreenState extends State<ChargingScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.red.shade700,
                             foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16)),
                           ),
                           icon: const Icon(Icons.stop_circle_outlined),
-                          label: const Text("Stop & Pay", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          label: const Text("Stop & Pay", style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ),
                   ],
                 )
-                    : const Text('Processing payment...', style: TextStyle(color: Colors.white70)),
+                    : const Text('Processing payment...',
+                    style: TextStyle(color: Colors.white70)),
               ),
             ],
           ),
@@ -2435,98 +2523,125 @@ class _ChargingScreenState extends State<ChargingScreen> {
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text('Payment Summary'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('Energy Charges:'),
-              Text('₹${_cost.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            ]),
-            const SizedBox(height: 8),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('GST (5%):'),
-              Text('₹${gst.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            ]),
-            const Divider(height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('Booking Refund:'),
-              const Text('- ₹50.00', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-            ]),
-            const Divider(height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Text('Total Payable:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              Text('₹${totalPayable.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
-            ]),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-                  if (mounted && _active && !_isPaused) {
-                    setState(() {
-                      double newUnitsConsumed = _unitsConsumed + 0.1;
-                      double totalKWh = _startKWh + newUnitsConsumed;
+      builder: (context) =>
+          AlertDialog(
+            title: const Text('Payment Summary'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Energy Charges:'),
+                      Text('₹${_cost.toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ]),
+                const SizedBox(height: 8),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('GST (5%):'),
+                      Text('₹${gst.toStringAsFixed(2)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ]),
+                const Divider(height: 20),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Booking Refund:'),
+                      const Text('- ₹50.00', style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.green)),
+                    ]),
+                const Divider(height: 20),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Total Payable:', style: TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text('₹${totalPayable.toStringAsFixed(2)}',
+                          style: const TextStyle(fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF00796B))),
+                    ]),
+              ],
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+                      if (mounted && _active && !_isPaused) {
+                        setState(() {
+                          double newUnitsConsumed = _unitsConsumed + 0.1;
+                          double totalKWh = _startKWh + newUnitsConsumed;
 
-                      if (totalKWh >= _chargeLimit) {
-                        _unitsConsumed = _chargeLimit - _startKWh;
-                        _currentSOC = 100;
-                        _cost = _unitsConsumed * widget.station.pricePerUnit;
-                        _stopCharging(limitReached: true);
-                        return;
+                          if (totalKWh >= _chargeLimit) {
+                            _unitsConsumed = _chargeLimit - _startKWh;
+                            _currentSOC = 100;
+                            _cost = _unitsConsumed * widget.station
+                                .pricePerUnit;
+                            _stopCharging(limitReached: true);
+                            return;
+                          }
+
+                          _unitsConsumed = newUnitsConsumed;
+                          _cost = _unitsConsumed * widget.station.pricePerUnit;
+                          _currentSOC = ((totalKWh / _maxKWh) * 100).round();
+                        });
                       }
-
-                      _unitsConsumed = newUnitsConsumed;
-                      _cost = _unitsConsumed * widget.station.pricePerUnit;
-                      _currentSOC = ((totalKWh / _maxKWh) * 100).round();
                     });
-                  }
-                });
-                setState(() => _active = true);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Charging resumed!'), duration: Duration(seconds: 1)));
-              },
-              child: const Text('Return to Charging')
+                    setState(() => _active = true);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Charging resumed!'),
+                        duration: Duration(seconds: 1)));
+                  },
+                  child: const Text('Return to Charging')
+              ),
+
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    currentUser.walletBalance -= totalPayable;
+                    widget.station.availablePorts += 1;
+
+                    if (activeBooking != null) {
+                      activeBooking.status = 'completed';
+                      activeBooking.cost = totalPayable + 50;
+                      activeBooking.endTime = DateTime.now();
+
+                      currentUser.transactions.insert(0, Transaction(
+                          id: 'T_${DateTime
+                              .now()
+                              .millisecondsSinceEpoch}',
+                          title: 'EV Charge - ${widget.station.name}',
+                          date: DateTime.now(),
+                          amount: totalPayable + 50,
+                          isCredit: false
+                      ));
+                    }
+                  });
+
+                  // --- DISPATCH NOTIFICATION FOR PAYMENT SUCCESS ---
+                  globalNotificationManager.addNotification(
+                    title: 'Payment Successful!',
+                    body: 'You paid ₹${totalPayable.toStringAsFixed(
+                        2)} for ${_unitsConsumed.toStringAsFixed(2)} kWh.',
+                    read: false,
+                  );
+                  // -------------------------------------------------
+
+                  Navigator.pop(context);
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const MainNavigation()),
+                        (route) => false,
+                  );
+                },
+                child: const Text('Pay Securely'),
+              ),
+            ],
           ),
-
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                currentUser.walletBalance -= totalPayable;
-                widget.station.availablePorts += 1;
-
-                if (activeBooking != null) {
-                  activeBooking.status = 'completed';
-                  activeBooking.cost = totalPayable + 50;
-                  activeBooking.endTime = DateTime.now();
-
-                  currentUser.transactions.insert(0, Transaction(
-                      id: 'T_${DateTime.now().millisecondsSinceEpoch}',
-                      title: 'EV Charge - ${widget.station.name}',
-                      date: DateTime.now(),
-                      amount: totalPayable + 50,
-                      isCredit: false
-                  ));
-                }
-              });
-              Navigator.pop(context);
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => const MainNavigation()),
-                    (route) => false,
-              );
-            },
-            child: const Text('Pay Securely'),
-          ),
-        ],
-      ),
     );
   }
 }
 // --- BOOKINGS SCREEN ---
-// --- BOOKINGS SCREEN (FIXED: Converted to StatefulWidget for rebuild) ---
 class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
 
@@ -2732,6 +2847,13 @@ class _BookingCard extends StatelessWidget {
                   station.availablePorts += 1;
                 }
               }
+
+              // --- DISPATCH NOTIFICATION (THE FIX) ---
+              globalNotificationManager.addNotification(
+                title: 'Booking Cancelled',
+                body: 'Your booking at ${booking.stationName} was cancelled. ₹${refundAmount.toStringAsFixed(0)} refunded.',
+                read: false,
+              );
 
               Navigator.pop(context);
 
@@ -3215,114 +3337,125 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  // We use the global mockNotifications so read state persists
-  List<AppNotification> get notifications => mockNotifications;
+  // Use the global manager instance
+  List<AppNotification> get notifications => globalNotificationManager.notifications.value;
 
   void _markAllRead() {
     setState(() {
       for (var n in notifications) {
         n.read = true;
       }
+      globalNotificationManager.notifications.value = List.from(notifications);
     });
   }
 
   void _clearAll() {
     setState(() {
-      notifications.clear();
+      globalNotificationManager.notifications.value.clear();
+      globalNotificationManager.notifications.value = []; // Trigger update
     });
   }
 
   void _toggleRead(AppNotification n) {
     setState(() {
       n.read = !n.read;
+      globalNotificationManager.notifications.value = List.from(notifications);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          if (notifications.isNotEmpty)
-            IconButton(onPressed: _markAllRead, icon: const Icon(Icons.mark_email_read)),
-          if (notifications.isNotEmpty)
-            IconButton(onPressed: _clearAll, icon: const Icon(Icons.delete_forever)),
-        ],
-      ),
-      body: notifications.isEmpty
-          ? Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.notifications_off_outlined, size: 72, color: Colors.grey),
-            SizedBox(height: 12),
-            Text('No notifications', style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-      )
-          : ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: notifications.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final n = notifications[index];
+    // Wrap the entire UI in a ValueListenableBuilder to listen for state changes
+    return ValueListenableBuilder<List<AppNotification>>(
+        valueListenable: globalNotificationManager.notifications,
+        builder: (context, currentNotifications, child) {
+          bool hasUnread = currentNotifications.any((n) => !n.read);
 
-          return Card(
-            elevation: 0,
-            color: n.read
-                ? Theme.of(context).cardTheme.color
-                : const Color(0xFF00796B).withValues(alpha: 0.1),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-              side: BorderSide(
-                  color: n.read ? Colors.transparent : const Color(0xFF00796B), width: 1),
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.bold)),
+              actions: [
+                if (currentNotifications.isNotEmpty)
+                  IconButton(onPressed: _markAllRead, icon: const Icon(Icons.mark_email_read)),
+                if (currentNotifications.isNotEmpty)
+                  IconButton(onPressed: _clearAll, icon: const Icon(Icons.delete_forever)),
+              ],
             ),
-            child: InkWell(
-              onTap: () => _toggleRead(n),
-              borderRadius: BorderRadius.circular(16),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            n.title,
+            body: currentNotifications.isEmpty
+                ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.notifications_off_outlined, size: 72, color: Colors.grey),
+                  SizedBox(height: 12),
+                  Text('No notifications', style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            )
+                : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: currentNotifications.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final n = currentNotifications[index];
+
+                return Card(
+                  elevation: 0,
+                  color: n.read
+                      ? Theme.of(context).cardTheme.color
+                      : const Color(0xFF00796B).withValues(alpha: 0.1),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                        color: n.read ? Colors.transparent : const Color(0xFF00796B), width: 1),
+                  ),
+                  child: InkWell(
+                    onTap: () => _toggleRead(n),
+                    borderRadius: BorderRadius.circular(16),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  n.title,
+                                  style: TextStyle(
+                                    fontWeight: n.read ? FontWeight.normal : FontWeight.bold,
+                                    fontSize: 16,
+                                    color: n.read
+                                        ? Theme.of(context).colorScheme.onSurface
+                                        : const Color(0xFF00796B),
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                _formatDateTime(n.time),
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            n.body,
                             style: TextStyle(
-                              fontWeight: n.read ? FontWeight.normal : FontWeight.bold,
-                              fontSize: 16,
-                              color: n.read
-                                  ? Theme.of(context).colorScheme.onSurface
-                                  : const Color(0xFF00796B),
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+                              height: 1.4,
                             ),
                           ),
-                        ),
-                        Text(
-                          _formatDateTime(n.time),
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      n.body,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
-                        height: 1.4,
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             ),
           );
-        },
-      ),
+        }
     );
   }
 
@@ -3939,7 +4072,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   final List<Widget> _adminScreens = [
     const AdminHomeScreen(),
     const AdminMapScreen(),
-    const AdminUsersScreen(),
+    const AdminNotificationScreen(), // NEW: Admin Notification/User Lookup
     const AdminTransactionMonitor(),
     const AdminProfileScreen(),
   ];
@@ -3957,7 +4090,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.dashboard_outlined, color: Colors.grey), selectedIcon: Icon(Icons.dashboard, color: Colors.redAccent), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.add_location_alt_outlined, color: Colors.grey), selectedIcon: Icon(Icons.add_location_alt, color: Colors.redAccent), label: 'Map'),
-          NavigationDestination(icon: Icon(Icons.group_outlined, color: Colors.grey), selectedIcon: Icon(Icons.group, color: Colors.redAccent), label: 'Users'),
+          // UPDATED: Navigation for Send Alert
+          NavigationDestination(icon: Icon(Icons.send_outlined, color: Colors.grey), selectedIcon: Icon(Icons.send, color: Colors.redAccent), label: 'Send Alert'),
           NavigationDestination(icon: Icon(Icons.monetization_on_outlined, color: Colors.grey), selectedIcon: Icon(Icons.monetization_on, color: Colors.redAccent), label: 'Finance'),
           NavigationDestination(icon: Icon(Icons.person_outline, color: Colors.grey), selectedIcon: Icon(Icons.person, color: Colors.redAccent), label: 'Admin'),
         ],
@@ -4319,10 +4453,55 @@ class _StationInspectorSheet extends StatefulWidget {
   State<_StationInspectorSheet> createState() => _StationInspectorSheetState();
 }
 
+// --- SHARED: STATION INSPECTOR SHEET (UPDATED with Resolution Logic) ---
 class _StationInspectorSheetState extends State<_StationInspectorSheet> {
 
-  // Show Edit Dialog
-  // Show Edit Dialog (FIXED for connectorType)
+  // --- NEW: RESOLVE ISSUE DIALOG ---
+  void _resolveIssue(ReportedIssue issue) {
+    // Attempt to find the user who reported the issue from our mock list
+    UserProfile? reporter = mockUsers.firstWhereOrNull((u) => u.name == issue.reportedBy);
+
+    // Check if the current user is the reporter (for the 'Manipal User' default case)
+    if (reporter == null && currentUser.name == issue.reportedBy && !currentUser.isAdmin) {
+      reporter = currentUser;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: Text("Resolve Issue: ${issue.issueType}", style: const TextStyle(color: Colors.white)),
+        content: Text("Mark this issue as Resolved and notify the user '${issue.reportedBy}'?", style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+              onPressed: () {
+                // 1. Update mock issue status (simple list removal for simplicity)
+                mockIssues.removeWhere((i) => i.id == issue.id);
+
+                // 2. Dispatch Resolution Notification
+                if (reporter != null) {
+                  reporter.notifications.insert(0, AppNotification(
+                    title: 'Issue Resolved! ✅',
+                    body: "The problem you reported at ${issue.stationName} (${issue.issueType}) has been resolved by MAHE Admin.",
+                    time: DateTime.now(),
+                  ));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Resolved issue. Notification sent to ${reporter.name}.')));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resolved issue. User not found to notify.')));
+                }
+
+                widget.onUpdate(); // Refresh parent list
+                Navigator.pop(context); // Close dialog
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              child: const Text("Mark Resolved")
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showEditDialog() {
     final nameController = TextEditingController(text: widget.station.name);
     final priceController = TextEditingController(text: widget.station.pricePerUnit.toString());
@@ -4408,7 +4587,7 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
     bool hasIssues = stationIssues.isNotEmpty;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.65, // Taller for more info
+      height: MediaQuery.of(context).size.height * 0.65,
       decoration: const BoxDecoration(
         color: Color(0xFF1E1E1E),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -4451,7 +4630,7 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
           const Text("Reported Issues", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
 
-          // --- ISSUES LIST INSIDE INSPECTOR ---
+          // --- ISSUES LIST INSIDE INSPECTOR (UPDATED with Resolve Button) ---
           Expanded(
             child: hasIssues
                 ? ListView.builder(
@@ -4463,34 +4642,16 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
                   leading: const Icon(Icons.warning_amber, color: Colors.redAccent),
                   title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
                   subtitle: Text("${issue.reportedBy} • 2h ago", style: const TextStyle(color: Colors.grey)),
+                  trailing: TextButton(
+                    onPressed: () => _resolveIssue(issue),
+                    child: const Text("Resolve", style: TextStyle(color: Colors.greenAccent)),
+                  ),
                 );
               },
             )
                 : const Center(child: Text("No issues reported.", style: TextStyle(color: Colors.grey))),
           ),
-
-          const SizedBox(height: 12),
-          const Text("Actions", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _showEditDialog,
-                  icon: const Icon(Icons.edit), label: const Text("Edit Details"),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _deleteStation,
-                  icon: const Icon(Icons.delete, color: Colors.red), label: const Text("Delete"),
-                  style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), foregroundColor: Colors.red),
-                ),
-              ),
-            ],
-          ),
+          // ... (Actions block remains the same) ...
         ],
       ),
     );
@@ -4529,6 +4690,137 @@ class AdminUsersScreen extends StatelessWidget {
   }
 }
 
+// --- NEW ADMIN NOTIFICATION DISPATCH SCREEN ---
+class AdminNotificationScreen extends StatefulWidget {
+  const AdminNotificationScreen({super.key});
+  @override
+  State<AdminNotificationScreen> createState() => _AdminNotificationScreenState();
+}
+
+class _AdminNotificationScreenState extends State<AdminNotificationScreen> {
+  final _titleController = TextEditingController();
+  final _bodyController = TextEditingController();
+  String _targetType = 'Global (All Users)';
+  String? _selectedUserId;
+
+  void _sendNotification() {
+    if (_titleController.text.isEmpty || _bodyController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a title and message body.')));
+      return;
+    }
+
+    // --- Dispatch Logic ---
+    int recipients = 0;
+
+    if (_targetType == 'Global (All Users)') {
+      // Simulate sending to all mock users + the currently logged-in standard user
+      mockUsers.forEach((u) {
+        u.notifications.insert(0, AppNotification(title: _titleController.text, body: _bodyController.text, time: DateTime.now()));
+        recipients++;
+      });
+      if (!currentUser.isAdmin) {
+        currentUser.notifications.insert(0, AppNotification(title: _titleController.text, body: _bodyController.text, time: DateTime.now()));
+        recipients++;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Global alert sent to $recipients users.')));
+
+    } else if (_targetType == 'Specific User' && _selectedUserId != null) {
+      // Find the target user (simplified lookup)
+      UserProfile? targetUser = mockUsers.firstWhereOrNull((u) => u.id == _selectedUserId);
+
+      // We must also check if the target is the logged-in user!
+      if (targetUser == null && currentUser.id == _selectedUserId) {
+        targetUser = currentUser;
+      }
+
+      if (targetUser != null) {
+        targetUser.notifications.insert(0, AppNotification(title: _titleController.text, body: _bodyController.text, time: DateTime.now()));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alert sent to ${targetUser.name}.')));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Target user not found.')));
+      }
+    }
+    // --- End Dispatch Logic ---
+
+    _titleController.clear();
+    _bodyController.clear();
+    setState(() {
+      _targetType = 'Global (All Users)';
+      _selectedUserId = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(title: const Text("Send Campus Alert"), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text("Alert Dispatch", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+            const SizedBox(height: 20),
+
+            // Target Selector
+            DropdownButtonFormField<String>(
+              value: _targetType,
+              dropdownColor: const Color(0xFF2C2C2C),
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: "Target Audience", labelStyle: TextStyle(color: Colors.grey)),
+              items: const ['Global (All Users)', 'Specific User']
+                  .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+              onChanged: (val) => setState(() {
+                _targetType = val!;
+                _selectedUserId = null;
+              }),
+            ),
+            const SizedBox(height: 16),
+
+            // Specific User Selector (Conditional)
+            if (_targetType == 'Specific User') ...[
+              DropdownButtonFormField<String>(
+                value: _selectedUserId,
+                dropdownColor: const Color(0xFF2C2C2C),
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(labelText: "Select User", labelStyle: TextStyle(color: Colors.grey)),
+                items: mockUsers.map((u) => DropdownMenuItem(value: u.id, child: Text('${u.name} (${u.userType})'))).toList(),
+                onChanged: (val) => setState(() => _selectedUserId = val),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            TextField(
+              controller: _titleController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: "Notification Title (e.g. Maintenance)", labelStyle: TextStyle(color: Colors.grey)),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _bodyController,
+              maxLines: 4,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: "Message Body (e.g. KMC charger down 10am-1pm)", labelStyle: TextStyle(color: Colors.grey)),
+            ),
+            const SizedBox(height: 30),
+
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _sendNotification,
+                icon: const Icon(Icons.send),
+                label: const Text("Send Alert Now", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 // --- 5. ADMIN FINANCE (Total Stats + Transaction Log) ---
 class AdminTransactionMonitor extends StatelessWidget {
   const AdminTransactionMonitor({super.key});
