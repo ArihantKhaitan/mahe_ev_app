@@ -1432,6 +1432,20 @@ class _MapViewScreenState extends State<MapViewScreen> {
   }
 }
 
+// --- MAP LAUNCHER HELPER (Simulated) ---
+
+// In a real app, this would use 'package:url_launcher/url_launcher.dart'.
+// We simulate the functionality here to avoid a compilation error if the package is not yet added.
+Future<void> _launchMapsUrl(String destinationName) async {
+  // We use a query that Google Maps can resolve to the closest charging location
+  final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=MAHE EV Charging $destinationName'
+  );
+
+  // For simulation:
+  print('Attempting to launch map URL: ${uri.toString()}');
+}
+
 // --- STATION DETAIL SCREEN ---
 class StationDetailScreen extends StatefulWidget {
   final Station station;
@@ -1531,6 +1545,29 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                   ],
                 ),
               ),
+            // --- MOVED: NAVIGATE BUTTON HERE ---
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  _launchMapsUrl(widget.station.name);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Opening maps to ${widget.station.location}...'))
+                  );
+                },
+                icon: const Icon(Icons.near_me_outlined),
+                label: const Text("Navigate Here"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF00796B),
+                  side: const BorderSide(color: Color(0xFF00796B)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+            // ------------------------------------
+
             const SizedBox(height: 24),
             Row(
               children: [
