@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
-
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart'; // From previous step
+import 'package:url_launcher/url_launcher.dart';
 // --- HELPER EXTENSION FOR firstWhereOrNull (Used in ChargingScreen logic) ---
 extension IterableExtension<E> on Iterable<E> {
   E? firstWhereOrNull(bool Function(E element) test) {
@@ -406,13 +409,28 @@ List<AppNotification> mockNotifications = [
   ),
 ];
 
-// Initial Stations
-// Initial Stations (UPDATED with connectorType)
+// Initial Stations (UPDATED with REAL LatLng COORDINATES)
 List<Station> mockStations = [
-  Station(id: '1', name: 'MIT Quadrangle', location: 'Block 4', distance: 0.5, isFastCharger: true, totalPorts: 4, availablePorts: 2, isSharedPower: true, isSolarPowered: true, mapX: 0.4, mapY: 0.3, parkingSpaces: 8, availableParking: 3, pricePerUnit: 8.5, connectorType: 'CCS Type 2'),
-  Station(id: '2', name: 'KMC Staff Parking', location: 'Tiger Circle', distance: 1.2, isFastCharger: true, totalPorts: 2, availablePorts: 0, isSharedPower: false, isSolarPowered: true, mapX: 0.7, mapY: 0.6, parkingSpaces: 6, availableParking: 0, pricePerUnit: 8.5, connectorType: 'CCS Type 2'),
-  Station(id: '3', name: 'AB-5 Solar Carport', location: 'Uni Road', distance: 2.8, isFastCharger: false, totalPorts: 6, availablePorts: 5, isSharedPower: false, isSolarPowered: true, mapX: 0.2, mapY: 0.8, parkingSpaces: 12, availableParking: 8, pricePerUnit: 7.0, connectorType: 'Type 2 AC'),
-  Station(id: '4', name: 'NLH EV Point', location: 'NLH Complex', distance: 0.8, isFastCharger: false, totalPorts: 4, availablePorts: 4, isSharedPower: false, isSolarPowered: false, mapX: 0.5, mapY: 0.4, parkingSpaces: 4, availableParking: 2, pricePerUnit: 8.0, connectorType: 'Type 2 AC'),
+  Station(
+      id: '1', name: 'MIT Quadrangle', location: 'Block 4', distance: 0.5, isFastCharger: true, totalPorts: 4, availablePorts: 2, isSharedPower: true, isSolarPowered: true,
+      mapX: 74.7932, mapY: 13.3540, // REAL COORD: Near MIT Quadrangle/NLH
+      parkingSpaces: 8, availableParking: 3, pricePerUnit: 8.5, connectorType: 'CCS Type 2'
+  ),
+  Station(
+      id: '2', name: 'KMC Staff Parking', location: 'Tiger Circle', distance: 1.2, isFastCharger: true, totalPorts: 2, availablePorts: 0, isSharedPower: false, isSolarPowered: true,
+      mapX: 74.7885, mapY: 13.3488, // REAL COORD: Near Tiger Circle/KMC
+      parkingSpaces: 6, availableParking: 0, pricePerUnit: 8.5, connectorType: 'CCS Type 2'
+  ),
+  Station(
+      id: '3', name: 'AB-5 Solar Carport', location: 'Uni Road', distance: 2.8, isFastCharger: false, totalPorts: 6, availablePorts: 5, isSharedPower: false, isSolarPowered: true,
+      mapX: 74.7905, mapY: 13.3575, // REAL COORD: Near AB5/Engineering Building
+      parkingSpaces: 12, availableParking: 8, pricePerUnit: 7.0, connectorType: 'Type 2 AC'
+  ),
+  Station(
+      id: '4', name: 'NLH EV Point', location: 'NLH Complex', distance: 0.8, isFastCharger: false, totalPorts: 4, availablePorts: 4, isSharedPower: false, isSolarPowered: false,
+      mapX: 74.7940, mapY: 13.3530, // REAL COORD: Near NLH/Food Court
+      parkingSpaces: 4, availableParking: 2, pricePerUnit: 8.0, connectorType: 'Type 2 AC'
+  ),
 ];
 
 // Global User State (Starts empty, populated on Login)
@@ -1303,7 +1321,77 @@ class StationCard extends StatelessWidget {
   }
 }
 
-// --- MAP VIEW SCREEN ---
+void launchMapsUrl(String destinationName) async {
+  // Use 'google.navigation' scheme to open Google Maps and start navigation
+  // 'q' is the destination, and 'mode=d' requests driving directions.
+  final url = 'google.navigation:q=${Uri.encodeComponent(destinationName)}&mode=d';
+
+  // Check if the Google Maps app can be launched
+  if (await canLaunchUrl(Uri.parse(url))) {
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  } else {
+    // Fallback: Open Google Maps in a web browser for directions
+    final webUrl = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(destinationName)}';
+    if (await canLaunchUrl(Uri.parse(webUrl))) {
+      await launchUrl(Uri.parse(webUrl), mode: LaunchMode.platformDefault);
+    } else {
+      // Handle error if neither the app nor the web link can be opened
+      throw 'Could not launch Maps for $destinationName';
+    }
+  }
+}
+
+// --- HELPER WIDGETS FOR STATION DETAIL SCREEN ---
+
+// Note: These helper columns must be defined before the StationDetailScreen uses them.
+Widget _buildInfoColumn(IconData icon, String title, String value) {
+  return Expanded(
+    child: Column(
+      children: [
+        Icon(icon, size: 24, color: const Color(0xFF00796B)),
+        const SizedBox(height: 4),
+        Text(title, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 16),
+      ],
+    ),
+  );
+}
+
+Widget _buildTimeSlot(String time, {bool isSelected = false}) {
+  final isDark = themeNotifier.value == ThemeMode.dark;
+  return Container(
+    margin: const EdgeInsets.only(right: 8),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    decoration: BoxDecoration(
+      color: isSelected ? const Color(0xFF00796B) : (isDark ? const Color(0xFF1E1E1E) : Colors.white),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade300),
+    ),
+    child: Text(
+      time,
+      style: TextStyle(
+        color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+    ),
+  );
+}
+
+Widget _buildBookingDetail(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4.0),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.black87)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ],
+    ),
+  );
+}
+
+
 class MapViewScreen extends StatefulWidget {
   const MapViewScreen({super.key});
 
@@ -1312,208 +1400,426 @@ class MapViewScreen extends StatefulWidget {
 }
 
 class _MapViewScreenState extends State<MapViewScreen> {
-  // State variable to track if location is enabled
-  bool _showUserLocation = false;
+  final LatLng _manipalCenter = const LatLng(13.350, 74.790);
+  final double _initialZoom = 14.0;
+  static const double _markerSize = 30.0;
 
-  // Function to simulate asking for permission
-  void _askLocationPermission() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Use Location?"),
-        content: const Text("MAHE EV Charging needs access to your location to show nearby stations."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Deny")),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() => _showUserLocation = true); // Turn on the blue dot
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Location enabled")));
-            },
-            child: const Text("Allow"),
-          ),
-        ],
-      ),
-    );
+  final MapController _mapController = MapController();
+  final TextEditingController _searchController = TextEditingController();
+
+  // Real-Time Location State
+  Position? _currentPosition;
+  StreamSubscription<Position>? _positionStreamSubscription;
+
+  // Search State
+  List<Station> _searchResults = [];
+  bool _isSearching = false;
+
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAndStartLocationStream();
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Stack(
-        children: [
-          // 1. Simulated Map Background (YOUR ORIGINAL CODE KEPT INTACT)
-          Container(
-            color: const Color(0xFFE1E6EA),
-            child: Stack(
-              children: [
-                Positioned(top: 100, left: 0, right: 0, height: 20, child: Container(color: Colors.white)),
-                Positioned(top: 0, bottom: 0, left: 150, width: 20, child: Container(color: Colors.white)),
-                Positioned(top: 300, left: 0, right: 0, height: 30, child: Container(color: Colors.white)),
-                const Positioned(top: 120, left: 20, child: Text("MIT CAMPUS", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
-                const Positioned(bottom: 100, right: 20, child: Text("KMC AREA", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
-              ],
-            ),
-          ),
+  void dispose() {
+    _positionStreamSubscription?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
 
-          // 2. Stations Markers (YOUR ORIGINAL LOGIC KEPT INTACT)
-          ...mockStations.map((station) {
-            return Positioned(
-              left: MediaQuery.of(context).size.width * station.mapX,
-              top: MediaQuery.of(context).size.height * station.mapY,
-              child: GestureDetector(
-                onTap: () {
-                  // KEEPING YOUR DETAILED BOTTOM SHEET
-                  showModalBottomSheet(
-                    context: context,
-                    builder: (c) => Container(
-                      padding: const EdgeInsets.all(20),
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).scaffoldBackgroundColor,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(station.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: station.availablePorts > 0 ? Colors.green.withValues(alpha: 0.1) : Colors.red.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: station.availablePorts > 0 ? Colors.green : Colors.red),
-                                ),
-                                child: Text(
-                                  station.availablePorts > 0 ? 'Available' : 'Full',
-                                  style: TextStyle(color: station.availablePorts > 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              const Icon(Icons.location_on_outlined, size: 16, color: Colors.grey),
-                              const SizedBox(width: 4),
-                              Text(station.location, style: const TextStyle(color: Colors.grey)),
-                              const SizedBox(width: 16),
-                              const Icon(Icons.local_parking, size: 16, color: Colors.grey),
-                              const SizedBox(width: 4),
-                              Text('${station.availableParking} spots', style: const TextStyle(color: Colors.grey)),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => StationDetailScreen(station: station)));
-                              },
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00796B), foregroundColor: Colors.white),
-                              child: const Text("View Details & Book"),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+  // --- SEARCH LOGIC (INTERNAL FILTERING) ---
+  void _onSearchChanged() {
+    final query = _searchController.text.toLowerCase().trim();
+
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearching = true;
+      _searchResults = mockStations
+          .where((station) =>
+      station.name.toLowerCase().contains(query) ||
+          station.location.toLowerCase().contains(query)
+      )
+          .toList();
+    });
+  }
+
+  void _goToStation(Station station) {
+    _mapController.move(LatLng(station.mapY, station.mapX), 17.0);
+    _searchController.clear();
+    setState(() {
+      _searchResults = [];
+      _isSearching = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Navigated to ${station.name}')));
+  }
+  // ------------------------------------------
+
+  // --- LOCATION PERMISSION AND STREAM LOGIC (Uses geolocator) ---
+  Future<void> _checkAndStartLocationStream() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location services are disabled. Please enable GPS.')));
+      return;
+    }
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location permission denied.')));
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location permission permanently denied. Enable in app settings.')));
+      return;
+    }
+
+    // Start Continuous Stream
+    const LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 5, // Update every 5 meters
+    );
+
+    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings)
+        .listen((Position position) {
+      if(mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
+      }
+    });
+  }
+
+  // --- RECENTER ACTION ---
+  void _recenterMap() {
+    if (_currentPosition != null) {
+      // Move map to real GPS location
+      _mapController.move(LatLng(_currentPosition!.latitude, _currentPosition!.longitude), 17.0);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Waiting for GPS signal...')));
+    }
+  }
+
+  // Helper to create map markers from mock station data
+  List<Marker> _buildStationMarkers(BuildContext context) {
+    List<Marker> markers = mockStations.map((station) {
+      final LatLng markerPoint = LatLng(station.mapY, station.mapX);
+
+      return Marker(
+        point: markerPoint,
+        width: 100,
+        height: 80,
+        child: GestureDetector(
+          onTap: () {
+            // --- UPDATED BOTTOM SHEET CONTENT ---
+            showModalBottomSheet(
+              context: context,
+              builder: (c) => Container(
+                padding: const EdgeInsets.all(20),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: station.availablePorts > 0 ? const Color(0xFF00796B) : Colors.red,
-                        shape: BoxShape.circle,
-                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const Icon(Icons.ev_station, color: Colors.white, size: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(station.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: station.availablePorts > 0 ? Colors.green.withValues(alpha: 0.1) : Colors.red.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: station.availablePorts > 0 ? Colors.green : Colors.red),
+                          ),
+                          child: Text(
+                            station.availablePorts > 0 ? 'Available' : 'Full',
+                            style: TextStyle(color: station.availablePorts > 0 ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
                     ),
-                    // Added a tiny label below the icon for better visibility
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
-                      child: Text(station.name.split(' ').first, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on_outlined, size: 16, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Text(station.location, style: const TextStyle(color: Colors.grey)),
+                        const SizedBox(width: 16),
+                        const Icon(Icons.local_parking, size: 16, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Text('${station.availableParking} spots', style: const TextStyle(color: Colors.grey)),
+                      ],
                     ),
+                    const SizedBox(height: 20),
+                    // --- NAVIGATION AND BOOK BUTTONS ---
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(c); // Close modal
+                              if (_currentPosition == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot start navigation. Getting GPS fix...')));
+                              } else {
+                                // Initiate Navigation Simulation
+                                _launchMapsUrl(station.name);
+                                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Starting navigation to ${station.name}...')));
+                              }
+                            },
+                            icon: const Icon(Icons.near_me_outlined),
+                            label: const Text("Navigate Here"),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              Navigator.push(context, MaterialPageRoute(builder: (context) => StationDetailScreen(station: station)));
+                            },
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00796B), foregroundColor: Colors.white),
+                            child: const Text("View Details & Book"),
+                          ),
+                        ),
+                      ],
+                    )
                   ],
                 ),
               ),
             );
-          }),
+          },
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: station.availablePorts > 0 ? const Color(0xFF00796B) : Colors.red,
+                  shape: BoxShape.circle,
+                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                  border: Border.all(color: Colors.white, width: 2),
+                ),
+                child: const Icon(Icons.ev_station, color: Colors.white, size: 20),
+              ),
+              Container(
+                margin: const EdgeInsets.only(top: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(4)),
+                child: Text(station.name.split(' ').first, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
 
-          // 3. (NEW) USER LOCATION DOT - Only shows if permission granted
-          if (_showUserLocation)
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.5,
-              left: MediaQuery.of(context).size.width * 0.5,
-              child: Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: Colors.blue,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                  boxShadow: [BoxShadow(color: Colors.blue.withValues(alpha: 0.4), blurRadius: 10, spreadRadius: 5)],
-                ),
-              ),
-            )
-          else
-          // If location OFF, show the old static center crosshair
-            Positioned(
-              top: MediaQuery.of(context).size.height * 0.5,
-              left: MediaQuery.of(context).size.width * 0.5,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.3),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.blue, width: 2),
-                ),
-                child: const Icon(Icons.navigation, color: Colors.blue, size: 12),
-              ),
+    // Add User Location Marker (if available)
+    if (_currentPosition != null) {
+      markers.add(
+        Marker(
+          point: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          width: _markerSize,
+          height: _markerSize,
+          child: Container(
+            width: _markerSize,
+            height: _markerSize,
+            decoration: BoxDecoration(
+              color: Colors.blue,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: [BoxShadow(color: Colors.blue.withValues(alpha: 0.4), blurRadius: 10, spreadRadius: 5)],
             ),
+          ),
+        ),
+      );
+    }
 
-          // 4. Search Bar (YOUR ORIGINAL CODE)
-          Positioned(
-            top: 50,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                child: Row(
-                  children: const [
-                    Icon(Icons.search, color: Colors.grey),
-                    SizedBox(width: 8),
-                    Text("Search location...", style: TextStyle(color: Colors.grey)),
-                  ],
-                ),
+    return markers;
+  }
+
+  // --- SEARCH UI WIDGET (Redesigned) ---
+  Widget _buildSearchBar() {
+    return Positioned(
+      top: 50,
+      left: 16,
+      right: 16,
+      child: Column(
+        children: [
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row( // Using a Row to place the search button on the right
+                children: [
+                  // 1. GPS Status Icon (Left side)
+                  Icon(
+                    _currentPosition != null
+                        ? Icons.gps_fixed
+                        : Icons.gps_not_fixed,
+                    color: _currentPosition != null ? Colors.green : Colors.red,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+
+                  // 2. Text Input Field
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      decoration: const InputDecoration(
+                        hintText: "Search charger location...",
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+
+                  // 3. Search Button (Right side, replacing the old prefix icon)
+                  IconButton(
+                    icon: const Icon(Icons.search, color: Colors.grey),
+                    onPressed: () {
+                      // Trigger search immediately on button press
+                      _onSearchChanged();
+                      // Optionally hide keyboard after search starts
+                      FocusScope.of(context).unfocus();
+                    },
+                  ),
+                ],
               ),
             ),
           ),
 
-          // 5. (NEW) LOCATE ME BUTTON - Bottom Right Corner
+          // --- SEARCH RESULTS DROPDOWN ---
+          if (_isSearching && _searchResults.isNotEmpty)
+            Card(
+              margin: const EdgeInsets.only(top: 4),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 200), // Limit height
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: _searchResults.length,
+                  itemBuilder: (context, index) {
+                    final station = _searchResults[index];
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.ev_station, color: Color(0xFF00796B)),
+                      title: Text(station.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(station.location),
+                      onTap: () => _goToStation(station),
+                    );
+                  },
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    List<Marker> allMarkers = _buildStationMarkers(context);
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          // --- 1. FlutterMap Widget (REAL MAP) ---
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _manipalCenter,
+              initialZoom: _initialZoom,
+              minZoom: 12.0,
+              maxZoom: 18.0,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.drag | InteractiveFlag.pinchZoom | InteractiveFlag.doubleTapZoom,
+              ),
+              initialCameraFit: CameraFit.bounds(
+                bounds: LatLngBounds(
+                  LatLng(_manipalCenter.latitude - 0.01, _manipalCenter.longitude - 0.01),
+                  LatLng(_manipalCenter.latitude + 0.01, _manipalCenter.longitude + 0.01),
+                ),
+                padding: const EdgeInsets.only(top: 100, bottom: 100),
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                userAgentPackageName: 'com.mahe.evcharge.app',
+              ),
+              MarkerLayer(
+                markers: allMarkers,
+              ),
+            ],
+          ),
+
+          // --- 2. Search Bar (INTERNAL FILTERING) ---
+          _buildSearchBar(),
+
+          // --- 3. ZOOM CONTROLS AND LOCATE BUTTONS ---
           Positioned(
             bottom: 20,
             right: 20,
-            child: FloatingActionButton(
-              heroTag: "btn_locate", // Unique tag to prevent errors
-              onPressed: _askLocationPermission,
-              backgroundColor: Colors.white,
-              child: const Icon(Icons.my_location, color: Colors.black87),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Zoom In Button
+                FloatingActionButton(
+                  heroTag: "btn_zoom_in",
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.add, color: Colors.black87),
+                  onPressed: () {
+                    final currentZoom = _mapController.camera.zoom;
+                    _mapController.move(_mapController.camera.center, currentZoom + 1);
+                  },
+                ),
+                const SizedBox(height: 8),
+
+                // Zoom Out Button
+                FloatingActionButton(
+                  heroTag: "btn_zoom_out",
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.remove, color: Colors.black87),
+                  onPressed: () {
+                    final currentZoom = _mapController.camera.zoom;
+                    _mapController.move(_mapController.camera.center, currentZoom - 1);
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Locate Me Button
+                FloatingActionButton(
+                  heroTag: "btn_locate",
+                  onPressed: _recenterMap, // Moves map to real GPS location
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.my_location, color: Colors.black87),
+                ),
+              ],
             ),
           ),
         ],
@@ -1522,20 +1828,17 @@ class _MapViewScreenState extends State<MapViewScreen> {
   }
 }
 
-// --- MAP LAUNCHER HELPER (Simulated) ---
-
-// In a real app, this would use 'package:url_launcher/url_launcher.dart'.
-// We simulate the functionality here to avoid a compilation error if the package is not yet added.
 Future<void> _launchMapsUrl(String destinationName) async {
   // We use a query that Google Maps can resolve to the closest charging location
   final uri = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=MAHE EV Charging $destinationName'
+      'https://www.google.com/maps/search/?api=1&query=EV Charging $destinationName'
   );
 
-  // For simulation:
+  // In a real app, this would use the url_launcher package:
+  // if (await launchUrl(uri, mode: LaunchMode.externalApplication)) { /* success */ }
+
   print('Attempting to launch map URL: ${uri.toString()}');
 }
-
 // --- STATION DETAIL SCREEN ---
 class StationDetailScreen extends StatefulWidget {
   final Station station;
@@ -2107,10 +2410,10 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
     // ----------------------------
 
     // Initialize charging parameters only if vehicle is present
-    _maxKWh = _chargingVehicle!.batteryCapacityKWh;
-    _startKWh = _maxKWh * (_chargingVehicle!.initialSOCPercent / 100);
+    _maxKWh = _chargingVehicle.batteryCapacityKWh;
+    _startKWh = _maxKWh * (_chargingVehicle.initialSOCPercent / 100);
     _unitsConsumed = 0.0;
-    _currentSOC = _chargingVehicle!.initialSOCPercent;
+    _currentSOC = _chargingVehicle.initialSOCPercent;
     _chargeLimit = _maxKWh;
 
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -2300,7 +2603,7 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF0A0E27) : const Color(0xFF00796B),
       appBar: AppBar(
-        title: Text("Charging ${_chargingVehicle!.make}"),
+        title: Text("Charging ${_chargingVehicle.make}"),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
@@ -4217,8 +4520,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   final List<Widget> _adminScreens = [
     const AdminHomeScreen(),
-    const AdminMapScreen(),
-    const AdminNotificationScreen(), // NEW: Admin Notification/User Lookup
+    const AdminMapScreen(), // <-- This line should use the new Admin Map Screen
+    const AdminNotificationScreen(),
     const AdminTransactionMonitor(),
     const AdminProfileScreen(),
   ];
@@ -4246,6 +4549,292 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 }
 
+// --- SHARED: STATION INSPECTOR SHEET (The "Details" View + EDIT/DELETE/ISSUE Logic) ---
+class _StationInspectorSheet extends StatefulWidget {
+  final Station station;
+  final VoidCallback onUpdate;
+  const _StationInspectorSheet({super.key, required this.station, required this.onUpdate});
+
+  @override
+  State<_StationInspectorSheet> createState() => _StationInspectorSheetState();
+}
+
+class _StationInspectorSheetState extends State<_StationInspectorSheet> {
+
+  // --- NEW: RESOLVE ISSUE DIALOG ---
+  void _resolveIssue(ReportedIssue issue) {
+    // Attempt to find the user who reported the issue from our mock list
+    UserProfile? reporter = mockUsers.firstWhereOrNull((u) => u.name == issue.reportedBy);
+
+    // Check if the current user is the reporter (for the 'Manipal User' default case)
+    if (reporter == null && currentUser.name == issue.reportedBy && !currentUser.isAdmin) {
+      reporter = currentUser;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: Text("Resolve Issue: ${issue.issueType}", style: const TextStyle(color: Colors.white)),
+        content: Text("Mark this issue as Resolved and notify the user '${issue.reportedBy}'?", style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+              onPressed: () {
+                // 1. Update mock issue status (simple list removal for simplicity)
+                mockIssues.removeWhere((i) => i.id == issue.id);
+
+                // 2. Dispatch Resolution Notification
+                if (reporter != null) {
+                  reporter.notifications.insert(0, AppNotification(
+                    title: 'Issue Resolved! ✅',
+                    body: "The problem you reported at ${issue.stationName} (${issue.issueType}) has been resolved by MAHE Admin.",
+                    time: DateTime.now(),
+                  ));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Resolved issue. Notification sent to ${reporter.name}.')));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resolved issue. User not found to notify.')));
+                }
+
+                widget.onUpdate(); // Refresh parent list
+                Navigator.pop(context); // Close dialog
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+              child: const Text("Mark Resolved")
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditDialog() {
+    // Load current values
+    final nameController = TextEditingController(text: widget.station.name);
+    final locController = TextEditingController(text: widget.station.location);
+    final priceController = TextEditingController(text: widget.station.pricePerUnit.toString());
+    final spotsController = TextEditingController(text: widget.station.parkingSpaces.toString());
+    String selectedConnector = widget.station.connectorType;
+
+    // Find current station index for mutation
+    int currentStationIndex = mockStations.indexWhere((s) => s.id == widget.station.id);
+    Station currentStation = currentStationIndex != -1 ? mockStations[currentStationIndex] : widget.station;
+    bool isFast = currentStation.isFastCharger;
+    bool isSolar = currentStation.isSolarPowered;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2C2C2C),
+              title: const Text("Edit Details", style: TextStyle(color: Colors.white)),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Name", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location", labelStyle: TextStyle(color: Colors.grey))),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
+                      value: selectedConnector,
+                      dropdownColor: const Color(0xFF2C2C2C),
+                      style: const TextStyle(color: Colors.white),
+                      items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                      onChanged: (val) => setDialogState(() => selectedConnector = val!),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(child: TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price", labelStyle: TextStyle(color: Colors.grey)))),
+                        const SizedBox(width: 10),
+                        Expanded(child: TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey)))),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(title: const Text("Fast Charging", style: TextStyle(color: Colors.white)), value: isFast, onChanged: (val) => setDialogState(() => isFast = val), activeColor: Colors.redAccent),
+                    SwitchListTile(title: const Text("Solar Powered", style: TextStyle(color: Colors.white)), value: isSolar, onChanged: (val) => setDialogState(() => isSolar = val), activeColor: Colors.greenAccent),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                ElevatedButton(
+                  onPressed: () {
+                    // Update the global mockStations list
+                    if (currentStationIndex != -1) {
+                      mockStations[currentStationIndex] = Station(
+                        id: widget.station.id,
+                        name: nameController.text,
+                        location: locController.text, // Allow editing location text
+                        distance: widget.station.distance,
+                        isFastCharger: isFast, // Updated
+                        totalPorts: int.tryParse(spotsController.text) ?? 5, // Total ports = new spots
+                        availablePorts: currentStation.availablePorts, // Keep current availability
+                        isSharedPower: widget.station.isSharedPower,
+                        isSolarPowered: isSolar, // Updated
+                        mapX: widget.station.mapX,
+                        mapY: widget.station.mapY,
+                        parkingSpaces: int.tryParse(spotsController.text) ?? 5,
+                        availableParking: currentStation.availableParking, // Keep current availability
+                        pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
+                        connectorType: selectedConnector,
+                      );
+                    }
+                    widget.onUpdate(); // Refresh the Admin screen list/map
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Save"),
+                )
+              ],
+            );
+          }
+      ),
+    );
+  }
+
+  void _deleteStation() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Station?"),
+        content: Text("Are you sure you want to delete ${widget.station.name}? This cannot be undone.", style: const TextStyle(color: Colors.red)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () {
+              mockStations.removeWhere((s) => s.id == widget.station.id);
+              widget.onUpdate(); // Refresh parent list
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Close inspector sheet
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Deleted")));
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Confirm Delete"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Safely retrieve the current state of the station from the global list
+    Station currentStation = mockStations.firstWhereOrNull((s) => s.id == widget.station.id) ?? widget.station;
+    List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == currentStation.name).toList();
+    bool hasIssues = stationIssues.isNotEmpty;
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.80, // Made slightly taller
+      decoration: const BoxDecoration(
+        color: Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(child: Text(currentStation.name, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(color: hasIssues ? Colors.redAccent : Colors.green, borderRadius: BorderRadius.circular(12)),
+                child: Text(hasIssues ? "${stationIssues.length} ISSUES" : "ACTIVE", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          Text(currentStation.location, style: const TextStyle(color: Colors.grey)),
+
+          // Action Buttons
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _showEditDialog,
+                  icon: const Icon(Icons.edit, size: 18),
+                  label: const Text("Edit Station"),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, foregroundColor: Colors.white),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _deleteStation,
+                  icon: const Icon(Icons.delete_forever, size: 18),
+                  label: const Text("Delete"),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          // Stats Row
+          Row(
+            children: [
+              Expanded(child: _buildStat("Price", "₹${currentStation.pricePerUnit}", Icons.currency_rupee, Colors.blue)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildStat("Spots", "${currentStation.parkingSpaces}", Icons.local_parking, Colors.orange)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildStat("Type", currentStation.isFastCharger ? "Fast" : "Slow", Icons.ev_station, Colors.purple)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Solar/Ports Row
+          Row(
+            children: [
+              Expanded(child: _buildStat("Ports Avail.", "${currentStation.availablePorts}/${currentStation.totalPorts}", Icons.battery_charging_full, Colors.yellow)),
+              const SizedBox(width: 8),
+              Expanded(child: _buildStat("Power Source", currentStation.isSolarPowered ? "Solar" : "Grid", Icons.wb_sunny, currentStation.isSolarPowered ? Colors.greenAccent : Colors.grey)),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+          const Text("Reported Issues", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+
+          // --- ISSUES LIST ---
+          Expanded(
+            child: hasIssues
+                ? ListView.builder(
+              itemCount: stationIssues.length,
+              itemBuilder: (context, index) {
+                final issue = stationIssues[index];
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.warning_amber, color: Colors.redAccent),
+                  title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
+                  subtitle: Text("${issue.reportedBy} • 2h ago", style: const TextStyle(color: Colors.grey)),
+                  trailing: TextButton(
+                    onPressed: () => _resolveIssue(issue),
+                    child: const Text("Resolve", style: TextStyle(color: Colors.greenAccent)),
+                  ),
+                );
+              },
+            )
+                : const Center(child: Text("No issues reported.", style: TextStyle(color: Colors.grey))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStat(String label, String val, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+      child: Column(children: [Icon(icon, color: color, size: 20), Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold)), Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10))]),
+    );
+  }
+}
+
 // --- 2. ADMIN HOME (List View + Detailed Add Button) ---
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -4266,7 +4855,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   // --- DETAILED ADD DIALOG FOR HOME ---
-  // --- DETAILED ADD DIALOG FOR HOME (FIXED for connectorType) ---
   void _addNewStation() {
     final nameController = TextEditingController();
     final locController = TextEditingController();
@@ -4421,7 +5009,7 @@ class _AdminStatCard extends StatelessWidget {
   }
 }
 
-// --- 3. ADMIN MAP (Click to Add + Inspector + Fixed Label Visibility) ---
+// --- 3. ADMIN MAP EDITING SCREEN (Interactive Map with Editing Functions) ---
 class AdminMapScreen extends StatefulWidget {
   const AdminMapScreen({super.key});
   @override
@@ -4429,15 +5017,78 @@ class AdminMapScreen extends StatefulWidget {
 }
 
 class _AdminMapScreenState extends State<AdminMapScreen> {
+  final LatLng _manipalCenter = const LatLng(13.350, 74.790);
+  final double _initialZoom = 14.0;
+  final MapController _mapController = MapController();
 
-  // --- DETAILED ADD DIALOG FOR MAP ---
-  // --- DETAILED ADD DIALOG FOR MAP (FIXED for connectorType) ---
-  void _showAddDialogAtLocation(double x, double y) {
+  // State to handle which station is being edited
+  Station? _selectedStationForEdit;
+
+  // --- ADMIN: OPEN EDITOR SHEET (Uses existing logic) ---
+  void _openStationInspector(Station s) {
+    _selectedStationForEdit = s;
+    // We use then((_) => ...) to ensure the map re-renders markers immediately after the inspector sheet closes.
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _StationInspectorSheet(station: s, onUpdate: () => setState(() {})),
+    ).then((_) => setState(() => _selectedStationForEdit = null));
+  }
+
+  // --- ADMIN: ADD STATION LOGIC (New) ---
+  // This function is now the correct tap handler for FlutterMap
+  void _handleMapTap(TapPosition tapPosition, LatLng latLng) {
+    // We pass the real LatLng coordinates directly to the Add Dialog
+    _showAddDialogAtLocation(latLng.longitude, latLng.latitude);
+  }
+
+  // Helper to create map markers with tap handler
+  List<Marker> _buildStationMarkers(BuildContext context) {
+    return mockStations.map((station) {
+      // Use real LatLng coordinates saved in mockStations (mapY = Lat, mapX = Lon)
+      final LatLng markerPoint = LatLng(station.mapY, station.mapX);
+      bool isSelected = _selectedStationForEdit?.id == station.id;
+
+      return Marker(
+        point: markerPoint,
+        width: 100,
+        height: 80,
+        child: GestureDetector(
+          onTap: () => _openStationInspector(station),
+          child: Column(
+            children: [
+              Icon(
+                  Icons.location_on,
+                  color: isSelected ? Colors.cyanAccent : Colors.redAccent,
+                  size: isSelected ? 45 : 40
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 4)]
+                ),
+                child: Text(
+                    station.name,
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  // --- ADMIN: SHOW ADD DIALOG AT REAL LatLng ---
+  void _showAddDialogAtLocation(double lon, double lat) {
     final nameController = TextEditingController();
-    final locController = TextEditingController(text: "Pinned Location");
+    final locController = TextEditingController(text: "Tapped Location"); // Default text for user convenience
     final priceController = TextEditingController();
     final spotsController = TextEditingController();
-    String selectedConnector = 'CCS Type 2'; // Default connector
+    String selectedConnector = 'CCS Type 2';
     bool isFast = false;
     bool isSolar = false;
 
@@ -4452,13 +5103,12 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text("Coordinates: ${x.toStringAsFixed(2)}, ${y.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white54, fontSize: 10)),
+                    Text("Coordinates: Lat: ${lat.toStringAsFixed(4)}, Lon: ${lon.toStringAsFixed(4)}", style: const TextStyle(color: Colors.white54, fontSize: 10)),
                     const SizedBox(height: 10),
                     TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
                     const SizedBox(height: 10),
                     TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
                     const SizedBox(height: 10),
-                    // Connector Type Dropdown (NEW)
                     DropdownButtonFormField<String>(
                       decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
                       value: selectedConnector,
@@ -4497,11 +5147,11 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
                           isFastCharger: isFast,
                           totalPorts: 4, availablePorts: 4, isSharedPower: false,
                           isSolarPowered: isSolar,
-                          mapX: x, mapY: y, // <--- SAVES CLICK LOCATION
+                          mapX: lon, mapY: lat, // <--- SAVES CLICKED LatLng (Lon=X, Lat=Y)
                           parkingSpaces: int.tryParse(spotsController.text) ?? 5,
                           availableParking: int.tryParse(spotsController.text) ?? 5,
                           pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
-                          connectorType: selectedConnector, // <--- FIXED: Passed connectorType
+                          connectorType: selectedConnector,
                         ));
                       });
                       Navigator.pop(context);
@@ -4517,297 +5167,106 @@ class _AdminMapScreenState extends State<AdminMapScreen> {
     );
   }
 
-  void _openStationInspector(Station s) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _StationInspectorSheet(station: s, onUpdate: () => setState(() {})),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      // ADD BUTTON FOR MAP SCREEN
+      appBar: AppBar(title: const Text('Admin Map Editor'), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
+
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddDialogAtLocation(0.5, 0.5), // Center add
+        onPressed: () {
+          // Action for the extended button can be a hint or to re-center
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tap on the map to deploy a new charger!')));
+        },
         backgroundColor: Colors.redAccent,
         icon: const Icon(Icons.add_location),
-        label: const Text("Add Charger"),
+        label: const Text("Tap to Add Charger"),
       ),
+
       body: Stack(
         children: [
-          GestureDetector(
-            onTapUp: (details) {
-              final RenderBox box = context.findRenderObject() as RenderBox;
-              final Offset localOffset = box.globalToLocal(details.globalPosition);
-              _showAddDialogAtLocation(localOffset.dx / box.size.width, localOffset.dy / box.size.height);
-            },
-            child: Container(
-              color: const Color(0xFF2C2C2C),
-              width: double.infinity, height: double.infinity,
-              child: const Center(child: Text("Tap anywhere to deploy a charger", style: TextStyle(color: Colors.white24))),
+          // --- 1. FlutterMap Widget (REAL MAP) ---
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _manipalCenter,
+              initialZoom: _initialZoom,
+              minZoom: 12.0,
+              maxZoom: 18.0,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+              onTap: _handleMapTap, // <--- CORRECT TAP HANDLER
             ),
+            children: [
+              TileLayer(
+                urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                userAgentPackageName: 'com.mahe.evcharge.app',
+              ),
+              MarkerLayer(
+                markers: _buildStationMarkers(context),
+              ),
+            ],
           ),
-          ...mockStations.map((station) {
-            return Positioned(
-              left: MediaQuery.of(context).size.width * station.mapX,
-              top: MediaQuery.of(context).size.height * station.mapY,
-              child: GestureDetector(
-                onTap: () => _openStationInspector(station),
-                child: Column(
-                  children: [
-                    const Icon(Icons.location_on, color: Colors.redAccent, size: 40),
-                    // --- FIX: FORCE WHITE BACKGROUND LABEL FOR VISIBILITY ---
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                          color: Colors.white, // Always White Box
-                          borderRadius: BorderRadius.circular(4),
-                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 4)]
-                      ),
-                      child: Text(
-                          station.name,
-                          style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black // Always Black Text
-                          )
-                      ),
-                    ),
+
+          // --- 2. Floating Search Bar (Simulated) ---
+          Positioned(
+            top: 50,
+            left: 16,
+            right: 16,
+            child: Card(
+              elevation: 4,
+              color: const Color(0xFF1E1E1E),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                child: Row(
+                  children: const [
+                    Icon(Icons.search, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text("Admin Search (Feature Disabled)", style: TextStyle(color: Colors.grey)),
                   ],
                 ),
               ),
-            );
-          }),
-          Positioned(top: 50, left: 16, right: 16, child: Card(color: const Color(0xFF1E1E1E), child: Padding(padding: const EdgeInsets.all(12), child: Row(children: const [Icon(Icons.search, color: Colors.grey), SizedBox(width: 8), Text("Search map...", style: TextStyle(color: Colors.grey))])))),
-        ],
-      ),
-    );
-  }
-}
-
-// --- SHARED: STATION INSPECTOR SHEET (The "Details" View + EDIT Logic) ---
-class _StationInspectorSheet extends StatefulWidget {
-  final Station station;
-  final VoidCallback onUpdate;
-  const _StationInspectorSheet({required this.station, required this.onUpdate});
-
-  @override
-  State<_StationInspectorSheet> createState() => _StationInspectorSheetState();
-}
-
-// --- SHARED: STATION INSPECTOR SHEET (UPDATED with Resolution Logic) ---
-class _StationInspectorSheetState extends State<_StationInspectorSheet> {
-
-  // --- NEW: RESOLVE ISSUE DIALOG ---
-  void _resolveIssue(ReportedIssue issue) {
-    // Attempt to find the user who reported the issue from our mock list
-    UserProfile? reporter = mockUsers.firstWhereOrNull((u) => u.name == issue.reportedBy);
-
-    // Check if the current user is the reporter (for the 'Manipal User' default case)
-    if (reporter == null && currentUser.name == issue.reportedBy && !currentUser.isAdmin) {
-      reporter = currentUser;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: Text("Resolve Issue: ${issue.issueType}", style: const TextStyle(color: Colors.white)),
-        content: Text("Mark this issue as Resolved and notify the user '${issue.reportedBy}'?", style: const TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-              onPressed: () {
-                // 1. Update mock issue status (simple list removal for simplicity)
-                mockIssues.removeWhere((i) => i.id == issue.id);
-
-                // 2. Dispatch Resolution Notification
-                if (reporter != null) {
-                  reporter.notifications.insert(0, AppNotification(
-                    title: 'Issue Resolved! ✅',
-                    body: "The problem you reported at ${issue.stationName} (${issue.issueType}) has been resolved by MAHE Admin.",
-                    time: DateTime.now(),
-                  ));
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Resolved issue. Notification sent to ${reporter.name}.')));
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resolved issue. User not found to notify.')));
-                }
-
-                widget.onUpdate(); // Refresh parent list
-                Navigator.pop(context); // Close dialog
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-              child: const Text("Mark Resolved")
+            ),
           ),
-        ],
-      ),
-    );
-  }
 
-  void _showEditDialog() {
-    final nameController = TextEditingController(text: widget.station.name);
-    final priceController = TextEditingController(text: widget.station.pricePerUnit.toString());
-    final spotsController = TextEditingController(text: widget.station.parkingSpaces.toString());
-    String selectedConnector = widget.station.connectorType; // Get existing type
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF2C2C2C),
-              title: const Text("Edit Details", style: TextStyle(color: Colors.white)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Name", labelStyle: TextStyle(color: Colors.grey))),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
-                    value: selectedConnector,
-                    dropdownColor: const Color(0xFF2C2C2C),
-                    style: const TextStyle(color: Colors.white),
-                    items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
-                        .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                    onChanged: (val) => setDialogState(() => selectedConnector = val!),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price", labelStyle: TextStyle(color: Colors.grey))),
-                  const SizedBox(height: 10),
-                  TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey))),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                ElevatedButton(
+          // --- 3. Zoom Controls (Admin has same controls) ---
+          Positioned(
+            bottom: 20,
+            right: 20,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // Zoom In Button
+                FloatingActionButton(
+                  heroTag: "btn_admin_zoom_in",
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.add, color: Colors.black87),
                   onPressed: () {
-                    setState(() {
-                      int idx = mockStations.indexOf(widget.station);
-                      if (idx != -1) {
-                        mockStations[idx] = Station(
-                          id: widget.station.id,
-                          name: nameController.text,
-                          location: widget.station.location,
-                          distance: widget.station.distance,
-                          isFastCharger: widget.station.isFastCharger,
-                          totalPorts: widget.station.totalPorts,
-                          availablePorts: widget.station.availablePorts,
-                          isSharedPower: widget.station.isSharedPower,
-                          isSolarPowered: widget.station.isSolarPowered,
-                          mapX: widget.station.mapX,
-                          mapY: widget.station.mapY,
-                          parkingSpaces: int.tryParse(spotsController.text) ?? 5,
-                          availableParking: widget.station.availableParking,
-                          pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
-                          connectorType: selectedConnector, // <--- FIXED: Passed connectorType
-                        );
-                      }
-                    });
-                    widget.onUpdate(); // Refresh parent
-                    Navigator.pop(context);
+                    final currentZoom = _mapController.camera.zoom;
+                    _mapController.move(_mapController.camera.center, currentZoom + 1);
                   },
-                  child: const Text("Save"),
-                )
+                ),
+                const SizedBox(height: 8),
+
+                // Zoom Out Button
+                FloatingActionButton(
+                  heroTag: "btn_admin_zoom_out",
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  child: const Icon(Icons.remove, color: Colors.black87),
+                  onPressed: () {
+                    final currentZoom = _mapController.camera.zoom;
+                    _mapController.move(_mapController.camera.center, currentZoom - 1);
+                  },
+                ),
               ],
-            );
-          }
-      ),
-    );
-  }
-
-  void _deleteStation() {
-    mockStations.removeWhere((s) => s.id == widget.station.id);
-    widget.onUpdate();
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Deleted")));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Station currentStation = mockStations.firstWhere((s) => s.id == widget.station.id, orElse: () => widget.station);
-    List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == currentStation.name).toList();
-    bool hasIssues = stationIssues.isNotEmpty;
-
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.65,
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(child: Text(currentStation.name, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold))),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: hasIssues ? Colors.redAccent : Colors.green, borderRadius: BorderRadius.circular(12)),
-                child: Text(hasIssues ? "${stationIssues.length} ISSUES" : "ACTIVE", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-              ),
-            ],
+            ),
           ),
-          Text(currentStation.location, style: const TextStyle(color: Colors.grey)),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(child: _buildStat("Price", "₹${currentStation.pricePerUnit}", Icons.currency_rupee, Colors.blue)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildStat("Spots", "${currentStation.parkingSpaces}", Icons.local_parking, Colors.orange)),
-              const SizedBox(width: 8),
-              Expanded(child: _buildStat("Type", currentStation.isFastCharger ? "Fast" : "Slow", Icons.ev_station, Colors.purple)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          // New row for Solar
-          Row(
-            children: [
-              Expanded(child: _buildStat("Power", currentStation.isSolarPowered ? "Solar" : "Grid", Icons.wb_sunny, currentStation.isSolarPowered ? Colors.greenAccent : Colors.grey)),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-          const Text("Reported Issues", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-
-          // --- ISSUES LIST INSIDE INSPECTOR (UPDATED with Resolve Button) ---
-          Expanded(
-            child: hasIssues
-                ? ListView.builder(
-              itemCount: stationIssues.length,
-              itemBuilder: (context, index) {
-                final issue = stationIssues[index];
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.warning_amber, color: Colors.redAccent),
-                  title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text("${issue.reportedBy} • 2h ago", style: const TextStyle(color: Colors.grey)),
-                  trailing: TextButton(
-                    onPressed: () => _resolveIssue(issue),
-                    child: const Text("Resolve", style: TextStyle(color: Colors.greenAccent)),
-                  ),
-                );
-              },
-            )
-                : const Center(child: Text("No issues reported.", style: TextStyle(color: Colors.grey))),
-          ),
-          // ... (Actions block remains the same) ...
         ],
       ),
-    );
-  }
-
-  Widget _buildStat(String label, String val, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-      child: Column(children: [Icon(icon, color: color, size: 20), Text(val, style: TextStyle(color: color, fontWeight: FontWeight.bold)), Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 10))]),
     );
   }
 }
