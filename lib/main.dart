@@ -3,9 +3,10 @@ import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart'; // From previous step
+import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
-// --- HELPER EXTENSION FOR firstWhereOrNull (Used in ChargingScreen logic) ---
+import 'database_helper.dart';
+
 extension IterableExtension<E> on Iterable<E> {
   E? firstWhereOrNull(bool Function(E element) test) {
     for (final element in this) {
@@ -18,7 +19,22 @@ extension IterableExtension<E> on Iterable<E> {
 }
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // 1. Get the list of stations from SQL
+  final dbStations = await DatabaseHelper.instance.getAllStations();
+
+  // 2. If the database is empty (first time run), save your mock stations to SQL
+  if (dbStations.isEmpty) {
+    for (var s in mockStations) {
+      await DatabaseHelper.instance.insertStation(s);
+    }
+  } else {
+    // 3. Otherwise, use the data from the database instead of the hardcoded list
+    mockStations = dbStations;
+  }
+
   runApp(const MaheEVApp());
 }
 
@@ -128,9 +144,6 @@ class MaheEVApp extends StatelessWidget {
   }
 }
 
-
-// --- DATA MODELS ---
-
 // --- NOTIFICATION MANAGER ---
 class NotificationManager {
   // Use a ValueNotifier to manage the list so the UI rebuilds automatically
@@ -191,7 +204,7 @@ class Station {
     required this.parkingSpaces,
     required this.availableParking,
     required this.pricePerUnit,
-    required this.connectorType, // <--- NEW REQUIRED PARAMETER
+    required this.connectorType,
   });
 
   // --- NEW: DYNAMIC PRICING LOGIC ---
@@ -220,14 +233,14 @@ class Station {
   }
 }
 
-class Transaction {
+class WalletTransaction {
   final String id;
   final String title;
   final DateTime date;
   final double amount;
-  final bool isCredit; // true = added money, false = paid for charging
+  final bool isCredit;
 
-  Transaction({
+  WalletTransaction({
     required this.id,
     required this.title,
     required this.date,
@@ -262,26 +275,59 @@ class UserProfile {
   String id;
   String name;
   String email;
+  String password;
   String userType;
   bool isAdmin;
   double walletBalance;
   List<Booking> bookings;
-  List<Transaction> transactions;
+  List<WalletTransaction> transactions;
   List<Vehicle> vehicles;
-  List<AppNotification> notifications; // <--- ADDED FIELD
+  List<AppNotification> notifications;
 
   UserProfile({
     required this.id,
     required this.name,
     required this.email,
+    this.password = '', // Made optional with default empty string
     required this.userType,
     this.isAdmin = false,
     required this.walletBalance,
-    required this.bookings,
-    required this.transactions,
+    this.bookings = const [],
+    this.transactions = const [],
     this.vehicles = const [],
-    this.notifications = const [], // <--- ADDED PARAMETER
+    this.notifications = const [],
   });
+
+  // Convert User to Map for SQL storage
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'email': email,
+      'password': password,
+      'userType': userType,
+      'isAdmin': isAdmin ? 1 : 0,
+      'walletBalance': walletBalance,
+    };
+  }
+
+  // Create User from SQL query results
+  factory UserProfile.fromMap(Map<String, dynamic> map) {
+    return UserProfile(
+      id: map['id']?.toString() ?? '',
+      name: map['name']?.toString() ?? 'User',
+      email: map['email']?.toString() ?? '',
+      password: map['password']?.toString() ?? '123',
+      userType: map['userType']?.toString() ?? 'student',
+      isAdmin: (map['isAdmin'] as int? ?? 0) == 1,
+      walletBalance: (map['walletBalance'] as num? ?? 0.0).toDouble(),
+      // Empty lists initially; they get populated by separate SQL queries
+      bookings: [],
+      transactions: [],
+      vehicles: [],
+      notifications: [],
+    );
+  }
 }
 
 class AppNotification {
@@ -367,11 +413,11 @@ List<Vehicle> mockVehicles = [
 // Global Mock User List (For Admin targeting simulation)
 List<UserProfile> mockUsers = [
   UserProfile(
-    id: 'U002', name: 'Rahul S.', email: 'rahul.s@mahe.edu', userType: 'student',
+    id: 'U002', name: 'Rahul S.', email: 'rahul.s@mahe.edu', password: '123', userType: 'student',
     walletBalance: 1000, bookings: [], transactions: [], vehicles: [], notifications: [],
   ),
   UserProfile(
-    id: 'U003', name: 'Prof. Anjali', email: 'anjali@mahe.edu', userType: 'staff',
+    id: 'U003', name: 'Prof. Anjali', email: 'anjali@mahe.edu', password: '123', userType: 'staff',
     walletBalance: 2000, bookings: [], transactions: [], vehicles: [], notifications: [],
   ),
 ];
@@ -438,20 +484,22 @@ UserProfile currentUser = UserProfile(
   id: 'U001',
   name: 'Manipal User',
   email: 'user@mahe.ac.in',
+  password: '123', // Add this
   userType: 'student',
   walletBalance: 450.0,
   bookings: [],
   transactions: [
-    Transaction(id: 'T1', title: 'Added Money', date: DateTime.now().subtract(const Duration(days: 1)), amount: 500, isCredit: true),
-    Transaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
+    WalletTransaction(id: 'T1', title: 'Added Money', date: DateTime.now().subtract(const Duration(days: 1)), amount: 500, isCredit: true),
+    WalletTransaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
   ],
-  vehicles: mockVehicles, // Add the mock list here
-  notifications: mockNotifications, // <--- CORRECTLY INITIALIZED
+  vehicles: mockVehicles,
+  notifications: mockNotifications,
 );
-List<Transaction> allGlobalTransactions = [
-  Transaction(id: 'TXN_001', title: 'Payment - User A', date: DateTime.now().subtract(const Duration(minutes: 10)), amount: 120.0, isCredit: false),
-  Transaction(id: 'TXN_002', title: 'Wallet Load - User B', date: DateTime.now().subtract(const Duration(minutes: 45)), amount: 500.0, isCredit: true),
-  Transaction(id: 'TXN_003', title: 'Payment - User C', date: DateTime.now().subtract(const Duration(hours: 2)), amount: 85.0, isCredit: false),
+
+List<WalletTransaction> allGlobalTransactions = [
+  WalletTransaction(id: 'TXN_001', title: 'Payment - User A', date: DateTime.now().subtract(const Duration(minutes: 10)), amount: 120.0, isCredit: false),
+  WalletTransaction(id: 'TXN_002', title: 'Wallet Load - User B', date: DateTime.now().subtract(const Duration(minutes: 45)), amount: 500.0, isCredit: true),
+  WalletTransaction(id: 'TXN_003', title: 'Payment - User C', date: DateTime.now().subtract(const Duration(hours: 2)), amount: 85.0, isCredit: false),
 ];
 
 // --- LOGIN SCREEN ---
@@ -467,7 +515,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _idController = TextEditingController();
   final _passController = TextEditingController();
 
-  void _login() {
+  void _login() async {
     // 1. Basic validation
     if (_idController.text.isEmpty || _passController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -479,92 +527,45 @@ class _LoginScreenState extends State<LoginScreen> {
     String inputText = _idController.text.trim();
     String password = _passController.text.trim();
 
-    // --- ADMIN CHECK ---
-    if (inputText == 'arihant@manipal.edu' && password == '123') {
-      setState(() => _isLoading = true);
-      Future.delayed(const Duration(seconds: 1), () {
-        if (mounted) {
-          // Create ADMIN Profile
-          currentUser = UserProfile(
-            id: 'ADMIN_001',
-            name: 'Arihant (Admin)',
-            email: 'arihant@manipal.edu',
-            userType: 'admin',
-            isAdmin: true,
-            walletBalance: 99999.0,
-            bookings: [],
-            transactions: [],
-            vehicles: const [],
-            notifications: [], // Admin starts with a fresh, mutable list
-          );
+    setState(() => _isLoading = true);
+
+    // 2. Try to login via database
+    final user = await DatabaseHelper.instance.loginUser(inputText, password);
+
+    if (user != null) {
+      // Login successful!
+      currentUser = user;
+
+      // Debug: Print to console
+      print('Login successful for: ${user.email}, isAdmin: ${user.isAdmin}');
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+
+        if (user.isAdmin) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
           );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MainNavigation()),
+          );
         }
-      });
-      return;
-    }
-
-    // --- STANDARD USER CHECK ---
-    String finalEmail;
-    String userType = 'student';
-
-    if (inputText.contains('@')) {
-      String lowerInput = inputText.toLowerCase();
-      bool isValid = lowerInput.endsWith('@learner.manipal.edu') ||
-          lowerInput.endsWith('@manipal.edu');
-
-      if (!isValid) {
+      }
+    } else {
+      // Login failed
+      if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Use a valid Manipal email (@learner.manipal.edu or @manipal.edu)'),
+            content: Text('Invalid email/ID or password. Please sign up first.'),
             backgroundColor: Colors.red,
           ),
         );
-        return;
       }
-      finalEmail = inputText;
-      if (lowerInput.endsWith('@manipal.edu')) userType = 'staff';
-    } else {
-      finalEmail = '$inputText@learner.manipal.edu';
     }
-
-    setState(() => _isLoading = true);
-
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        currentUser = UserProfile(
-          id: inputText.contains('@') ? inputText.split('@')[0] : inputText,
-          name: userType == 'staff' ? 'Manipal Staff' : 'Manipal Student',
-          email: finalEmail,
-          userType: userType,
-          isAdmin: false,
-          walletBalance: 450.0,
-          bookings: [
-            Booking(
-              id: 'B_OLD_1',
-              stationId: '1',
-              stationName: 'MIT Quadrangle',
-              bookingTime: DateTime.now().subtract(const Duration(days: 2)),
-              cost: 120.50,
-              status: 'completed',
-            )
-          ],
-          transactions: [
-            Transaction(id: 'T1', title: 'Wallet Top-up', date: DateTime.now().subtract(const Duration(days: 5)), amount: 500.0, isCredit: true),
-            Transaction(id: 'T2', title: 'EV Charge - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 120.50, isCredit: false),
-          ],
-          vehicles: mockVehicles, // Added
-          notifications: List.from(mockNotifications), // User gets a mutable copy of mock notifications
-        );
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MainNavigation()),
-        );
-      }
-    });
   }
 
 // --- FIX: _continueAsGuest() to include mock vehicles ---
@@ -595,6 +596,7 @@ class _LoginScreenState extends State<LoginScreen> {
           id: 'GUEST',
           name: 'Guest User',
           email: 'guest@temp.mahe.ev',
+          password: '',
           userType: 'guest',
           walletBalance: 100.0,
           bookings: [],
@@ -789,8 +791,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _passController = TextEditingController();
   bool _isLoading = false;
 
-  void _handleSignUp() {
-    if (_nameController.text.isEmpty || _emailController.text.isEmpty || _idController.text.isEmpty) {
+  void _handleSignUp() async {
+    // 1. Validation
+    if (_nameController.text.isEmpty ||
+        _emailController.text.isEmpty ||
+        _idController.text.isEmpty ||
+        _passController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields')),
       );
@@ -813,19 +819,48 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     setState(() => _isLoading = true);
 
-    Future.delayed(const Duration(seconds: 1), () {
+    // 2. Check if email already exists
+    bool emailExists = await DatabaseHelper.instance.emailExists(inputEmail);
+    if (emailExists) {
       if (mounted) {
-        String type = inputEmail.endsWith('@manipal.edu') ? 'staff' : 'student';
-
-        currentUser = UserProfile(
-          id: _idController.text,
-          name: _nameController.text,
-          email: _emailController.text,
-          userType: type,
-          walletBalance: 0.0,
-          bookings: [],
-          transactions: [],
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Email already registered! Please login.'),
+            backgroundColor: Colors.orange,
+          ),
         );
+      }
+      return;
+    }
+
+    // 3. Create user profile
+    String userType = inputEmail.endsWith('@manipal.edu') ? 'staff' : 'student';
+
+    UserProfile newUser = UserProfile(
+      id: _idController.text.trim(),
+      name: _nameController.text.trim(),
+      email: inputEmail,
+      password: _passController.text.trim(),
+      userType: userType,
+      walletBalance: 0.0,
+      bookings: [],
+      transactions: [],
+      vehicles: [],
+      notifications: [],
+    );
+
+    // 4. Save to database
+    bool success = await DatabaseHelper.instance.registerUser(newUser);
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+
+      if (success) {
+        currentUser = newUser;
+
+        // Debug: Print all users to console
+        await DatabaseHelper.instance.printAllUsers();
 
         Navigator.pushAndRemoveUntil(
           context,
@@ -836,8 +871,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Welcome, ${_nameController.text}! Account created.')),
         );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to create account. Try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
-    });
+    }
   }
 
   @override
@@ -1341,56 +1383,459 @@ void launchMapsUrl(String destinationName) async {
   }
 }
 
-// --- HELPER WIDGETS FOR STATION DETAIL SCREEN ---
+// --- STATION DETAIL SCREEN (FINAL CORRECTED VERSION - SELF-CONTAINED) ---
+class StationDetailScreen extends StatefulWidget {
+  final Station station;
+  const StationDetailScreen({super.key, required this.station});
 
-// Note: These helper columns must be defined before the StationDetailScreen uses them.
-Widget _buildInfoColumn(IconData icon, String title, String value) {
-  return Expanded(
-    child: Column(
-      children: [
-        Icon(icon, size: 24, color: const Color(0xFF00796B)),
-        const SizedBox(height: 4),
-        Text(title, style: const TextStyle(fontSize: 14, color: Colors.grey)),
-        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 16),
-      ],
-    ),
-  );
+  @override
+  State<StationDetailScreen> createState() => _StationDetailScreenState();
 }
 
-Widget _buildTimeSlot(String time, {bool isSelected = false}) {
-  final isDark = themeNotifier.value == ThemeMode.dark;
-  return Container(
-    margin: const EdgeInsets.only(right: 8),
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    decoration: BoxDecoration(
-      color: isSelected ? const Color(0xFF00796B) : (isDark ? const Color(0xFF1E1E1E) : Colors.white),
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: isSelected ? const Color(0xFF00796B) : Colors.grey.shade300),
-    ),
-    child: Text(
-      time,
-      style: TextStyle(
-        color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+class _StationDetailScreenState extends State<StationDetailScreen> {
+  String _selectedSlot = 'now';
+
+  // --- HELPER METHOD: Get Charging Output ---
+  String getOutputValue(Station station) {
+    if (station.isFastCharger) return '60 kW';
+    if (station.isSharedPower) return '30 kW';
+    return '15 kW'; // Default/Standard Output
+  }
+
+  // --- HELPER METHOD: Info Column Widget (Corrected for Named Args) ---
+  Widget _buildInfoColumn({required String title, required String value, required Color color, required IconData icon}) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardTheme.color,
+          border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 2),
+            Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-Widget _buildBookingDetail(String label, String value) {
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4.0),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(color: Colors.black87)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-      ],
-    ),
-  );
-}
+  // --- HELPER METHOD: Time Slot Chip Widget (Corrected for Named Args) ---
+  Widget _buildTimeSlot({required String label, required String value, required bool selected}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedSlot = value),
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          // FIX: Use Theme color for dark mode background
+          color: selected ? const Color(0xFF00796B) : (isDark ? Theme.of(context).cardTheme.color : Colors.white),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: selected ? const Color(0xFF00796B) : Colors.grey.withValues(alpha: 0.3)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            // FIX: Use Theme color for text based on selection
+            color: selected ? Colors.white : Theme.of(context).colorScheme.onSurface,
+            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
 
+  // --- HELPER METHOD: Booking Detail Row Widget (Corrected for Named Args) ---
+  Widget _buildBookingDetail(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  // --- REPORT ISSUE LOGIC ---
+  void _showReportDialog() {
+    // ... (Existing _showReportDialog content remains the same)
+    final noteController = TextEditingController();
+    String selectedIssue = "Charger not working";
+
+    showDialog(
+      context: context,
+      builder: (context) =>
+          StatefulBuilder(
+              builder: (context, setDialogState) {
+                return AlertDialog(
+                  title: const Text("Report Issue"),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("What seems to be the problem?",
+                          style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      const SizedBox(height: 12),
+                      DropdownButton<String>(
+                        value: selectedIssue,
+                        isExpanded: true,
+                        items: [
+                          "Charger not working",
+                          "Payment Issue",
+                          "Parking Blocked",
+                          "Screen Broken",
+                          "Other"
+                        ]
+                            .map((e) =>
+                            DropdownMenuItem(value: e, child: Text(e)))
+                            .toList(),
+                        onChanged: (v) =>
+                            setDialogState(() => selectedIssue = v!),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: noteController,
+                        decoration: const InputDecoration(
+                            labelText: "Details (Optional)",
+                            border: OutlineInputBorder()),
+                        maxLines: 2,
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context),
+                        child: const Text("Cancel")),
+                    ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white),
+                        onPressed: () {
+                          setState(() {
+                            mockIssues.add(ReportedIssue(
+                                id: "REP_${DateTime
+                                    .now()
+                                    .millisecondsSinceEpoch}",
+                                stationName: widget.station.name,
+                                reportedBy: currentUser.name,
+                                issueType: selectedIssue,
+                                time: DateTime.now()
+                            ));
+                          });
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text(
+                                  "Issue Reported. Admin notified.")));
+                        },
+                        child: const Text("Report")
+                    ),
+                  ],
+                );
+              }
+          ),
+    );
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    final dynamicPrice = widget.station.getDynamicPrice();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.station.name),
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
+        elevation: 0.5,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.station.isSolarPowered)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0F2F1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF00796B)),
+                ),
+                child: Column(
+                  children: const [
+                    Icon(Icons.solar_power, size: 40, color: Color(0xFF00796B)),
+                    SizedBox(height: 8),
+                    Text('Solar Powered Station', style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
+                    Text('Zero GST • Clean Energy',
+                        style: TextStyle(fontSize: 12, color: Colors.black54)),
+                  ],
+                ),
+              ),
+            // --- NAVIGATE BUTTON ---
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  launchMapsUrl(widget.station.name);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(
+                          'Opening maps to ${widget.station.location}...'))
+                  );
+                },
+                icon: const Icon(Icons.near_me_outlined),
+                label: const Text("Navigate Here"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF00796B),
+                  side: const BorderSide(color: Color(0xFF00796B)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+            // ------------------------------------
+
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                // FIX: Corrected method call (using named arguments)
+                _buildInfoColumn(title: 'Output',
+                    value: getOutputValue(widget.station),
+                    color: Colors.orange,
+                    icon: Icons.bolt),
+                const SizedBox(width: 12),
+                _buildInfoColumn(title: 'Ports',
+                    value: '${widget.station.availablePorts}/${widget.station
+                        .totalPorts}',
+                    color: Colors.blue,
+                    icon: Icons.ev_station),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                // FIX: Corrected method call (using named arguments)
+                _buildInfoColumn(title: 'Parking',
+                    value: '${widget.station.availableParking}/${widget.station
+                        .parkingSpaces}',
+                    color: Colors.green,
+                    icon: Icons.local_parking),
+                const SizedBox(width: 12),
+                // FIX: Corrected method call (using named arguments)
+                _buildInfoColumn(title: 'Price', value: '₹${dynamicPrice.toStringAsFixed(2)}/kWh', color: const Color(0xFF00796B), icon: Icons.currency_rupee),
+              ],
+            ),
+            if (widget.station.isSharedPower)
+              const Padding(
+                padding: EdgeInsets.only(top: 8.0),
+                child: Text('* Power split when multiple vehicles charging',
+                    style: TextStyle(color: Colors.orange, fontSize: 12)),
+              ),
+            const SizedBox(height: 24),
+
+            // FIX: Time Slot Heading is visible in Dark Mode
+            Text('Select Time Slot',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black)),
+
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                // FIX: Corrected method calls (using named arguments)
+                _buildTimeSlot(label: "Now", value: "now", selected: _selectedSlot == "now"),
+                _buildTimeSlot(label: "10:30 AM", value: "10:30", selected: _selectedSlot == "10:30"),
+                _buildTimeSlot(label: "11:00 AM", value: "11:00", selected: _selectedSlot == "11:00"),
+                _buildTimeSlot(label: "12:00 PM", value: "12:00", selected: _selectedSlot == "12:00"),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme
+                    .of(context)
+                    .cardTheme
+                    .color,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.2)),
+              ),
+              child: Column(
+                children: [
+                  _buildBookingDetail('Booking Fee (Refundable)', '₹50'),
+                  const Divider(height: 20),
+                  // FIX: Use correct helper for Booking Detail layout
+                  _buildBookingDetail('Estimated Cost', '₹${(dynamicPrice * 10).toStringAsFixed(2)}/hr'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: widget.station.availablePorts > 0
+                    ? () {
+                  if (currentUser.walletBalance < 50) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text(
+                          'Insufficient balance. Please add money to wallet.')),
+                    );
+                    return;
+                  }
+                  _showBookingConfirmation(context);
+                }
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00796B),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 16),
+                ),
+                child: const Text('Book Slot', style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+            ),
+
+            // --- CLEAN REPORT BUTTON AT BOTTOM ---
+            const SizedBox(height: 16),
+            Center(
+              child: TextButton.icon(
+                onPressed: _showReportDialog,
+                icon: const Icon(
+                    Icons.flag_outlined, size: 18, color: Colors.grey),
+                label: const Text("Report an Issue with this Station",
+                    style: TextStyle(color: Colors.grey)),
+              ),
+            ),
+            const SizedBox(height: 30),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showBookingConfirmation(BuildContext context) {
+    // --- CRITICAL FIX: CHECK FOR ACTIVE SESSION ---
+    final hasActiveSession = currentUser.bookings.any((b) =>
+    b.status == 'active');
+
+    if (hasActiveSession) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'You already have an active charging session. Please stop it before starting a new one.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    // ----------------------------------------------
+
+    String bookingStatus = _selectedSlot == "now" ? "active" : "reserved";
+
+    showDialog(
+      context: context,
+      builder: (context) =>
+          AlertDialog(
+            title: const Text('Confirm Booking'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Station: ${widget.station.name}'),
+                Text('Time: ${_selectedSlot == "now"
+                    ? "Start Now"
+                    : _selectedSlot}'),
+                const SizedBox(height: 8),
+                const Text('Booking fee of ₹50 will be deducted.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Text('Refundable if cancelled within 10 mins.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () {
+                  // 1. DEDUCT FEE & CREATE BOOKING
+                  setState(() {
+                    currentUser.walletBalance -= 50;
+
+                    // Only decrement available ports if starting NOW.
+                    if (bookingStatus == 'active') {
+                      widget.station.availablePorts -= 1;
+                    }
+
+                    currentUser.bookings.add(Booking(
+                      id: 'B${DateTime
+                          .now()
+                          .millisecondsSinceEpoch}',
+                      stationId: widget.station.id,
+                      stationName: widget.station.name,
+                      bookingTime: DateTime.now(),
+                      cost: 50,
+                      status: bookingStatus, // 'active' or 'reserved'
+                    ));
+                  });
+
+                  // --- DISPATCH NOTIFICATION (THE FIX) ---
+                  globalNotificationManager.addNotification(
+                    title: 'Booking Confirmed!',
+                    body: '${bookingStatus == 'active'
+                        ? 'Active'
+                        : 'Reserved'} slot secured at ${widget.station.name}.',
+                    read: false,
+                  );
+                  // ---------------------------------------
+
+                  Navigator.pop(context); // Close dialog
+
+                  if (bookingStatus == 'active') {
+                    // Navigate to Charging Screen (Immediate Start)
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) =>
+                          ChargingScreen(station: widget.station)),
+                    );
+                  } else {
+                    // Navigate to Main Navigation (Bookings Tab)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text(
+                          'Slot successfully reserved! Check Bookings tab.')),
+                    );
+                    // Push back to root, user will naturally see or click the Bookings tab.
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const MainNavigation()),
+                          (route) => false,
+                    );
+                  }
+                },
+                child: Text(bookingStatus == 'active'
+                    ? 'Start Charging'
+                    : 'Confirm Reservation'),
+              ),
+            ],
+          ),
+    );
+  }
+}
 
 class MapViewScreen extends StatefulWidget {
   const MapViewScreen({super.key});
@@ -1839,456 +2284,8 @@ Future<void> _launchMapsUrl(String destinationName) async {
 
   print('Attempting to launch map URL: ${uri.toString()}');
 }
-// --- STATION DETAIL SCREEN ---
-class StationDetailScreen extends StatefulWidget {
-  final Station station;
-  const StationDetailScreen({super.key, required this.station});
 
-  @override
-  State<StationDetailScreen> createState() => _StationDetailScreenState();
-}
 
-class _StationDetailScreenState extends State<StationDetailScreen> {
-  String _selectedSlot = 'now';
-
-  // --- REPORT ISSUE LOGIC ---
-  void _showReportDialog() {
-    final noteController = TextEditingController();
-    String selectedIssue = "Charger not working";
-
-    showDialog(
-      context: context,
-      builder: (context) =>
-          StatefulBuilder(
-              builder: (context, setDialogState) {
-                return AlertDialog(
-                  title: const Text("Report Issue"),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text("What seems to be the problem?",
-                          style: TextStyle(color: Colors.grey, fontSize: 12)),
-                      const SizedBox(height: 12),
-                      DropdownButton<String>(
-                        value: selectedIssue,
-                        isExpanded: true,
-                        items: [
-                          "Charger not working",
-                          "Payment Issue",
-                          "Parking Blocked",
-                          "Screen Broken",
-                          "Other"
-                        ]
-                            .map((e) =>
-                            DropdownMenuItem(value: e, child: Text(e)))
-                            .toList(),
-                        onChanged: (v) =>
-                            setDialogState(() => selectedIssue = v!),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: noteController,
-                        decoration: const InputDecoration(
-                            labelText: "Details (Optional)",
-                            border: OutlineInputBorder()),
-                        maxLines: 2,
-                      ),
-                    ],
-                  ),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(context),
-                        child: const Text("Cancel")),
-                    ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent,
-                            foregroundColor: Colors.white),
-                        onPressed: () {
-                          setState(() {
-                            mockIssues.add(ReportedIssue(
-                                id: "REP_${DateTime
-                                    .now()
-                                    .millisecondsSinceEpoch}",
-                                stationName: widget.station.name,
-                                reportedBy: currentUser.name,
-                                issueType: selectedIssue,
-                                time: DateTime.now()
-                            ));
-                          });
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text(
-                                  "Issue Reported. Admin notified.")));
-                        },
-                        child: const Text("Report")
-                    ),
-                  ],
-                );
-              }
-          ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.station.name),
-        // Removed actions[] block here to remove top-right button
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (widget.station.isSolarPowered)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0F2F1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF00796B)),
-                ),
-                child: Column(
-                  children: const [
-                    Icon(Icons.solar_power, size: 40, color: Color(0xFF00796B)),
-                    SizedBox(height: 8),
-                    Text('Solar Powered Station', style: TextStyle(
-                        fontWeight: FontWeight.bold, color: Color(0xFF00796B))),
-                    Text('Zero GST • Clean Energy',
-                        style: TextStyle(fontSize: 12, color: Colors.black54)),
-                  ],
-                ),
-              ),
-            // --- MOVED: NAVIGATE BUTTON HERE ---
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  _launchMapsUrl(widget.station.name);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(
-                          'Opening maps to ${widget.station.location}...'))
-                  );
-                },
-                icon: const Icon(Icons.near_me_outlined),
-                label: const Text("Navigate Here"),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF00796B),
-                  side: const BorderSide(color: Color(0xFF00796B)),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ),
-            // ------------------------------------
-
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(child: _InfoBox(title: 'Output',
-                    value: widget.station.isSharedPower ? '30 kW' : '60 kW',
-                    color: Colors.orange,
-                    icon: Icons.bolt)),
-                const SizedBox(width: 12),
-                Expanded(child: _InfoBox(title: 'Ports',
-                    value: '${widget.station.availablePorts}/${widget.station
-                        .totalPorts}',
-                    color: Colors.blue,
-                    icon: Icons.ev_station)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(child: _InfoBox(title: 'Parking',
-                    value: '${widget.station.availableParking}/${widget.station
-                        .parkingSpaces}',
-                    color: Colors.green,
-                    icon: Icons.local_parking)),
-                const SizedBox(width: 12),
-                Expanded(child: _InfoBox(title: 'Price', value: '₹${widget.station.getDynamicPrice().toStringAsFixed(2)}/kWh', color: const Color(0xFF00796B), icon: Icons.currency_rupee)),
-              ],
-            ),
-            if (widget.station.isSharedPower)
-              const Padding(
-                padding: EdgeInsets.only(top: 8.0),
-                child: Text('* Power split when multiple vehicles charging',
-                    style: TextStyle(color: Colors.orange, fontSize: 12)),
-              ),
-            const SizedBox(height: 24),
-            const Text('Select Time Slot',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _TimeSlotChip(label: "Now",
-                    value: "now",
-                    selected: _selectedSlot == "now",
-                    onTap: () => setState(() => _selectedSlot = "now")),
-                _TimeSlotChip(label: "10:30 AM",
-                    value: "10:30",
-                    selected: _selectedSlot == "10:30",
-                    onTap: () => setState(() => _selectedSlot = "10:30")),
-                _TimeSlotChip(label: "11:00 AM",
-                    value: "11:00",
-                    selected: _selectedSlot == "11:00",
-                    onTap: () => setState(() => _selectedSlot = "11:00")),
-                _TimeSlotChip(label: "12:00 PM",
-                    value: "12:00",
-                    selected: _selectedSlot == "12:00",
-                    onTap: () => setState(() => _selectedSlot = "12:00")),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme
-                    .of(context)
-                    .cardTheme
-                    .color,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.withOpacity(0.2)),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text('Booking Fee (Refundable)',
-                          style: TextStyle(fontWeight: FontWeight.w500)),
-                      Text(
-                          '₹50', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  const Divider(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // FIX: Use highly visible color based on theme for Estimated Cost Label
-                      Text(
-                          'Estimated Cost',
-                          style: TextStyle(
-                            fontSize: 14,
-                            // Use high contrast color (black87 for light, white70 for dark)
-                            color: Theme
-                                .of(context)
-                                .brightness == Brightness.light
-                                ? Colors.black87
-                                : Colors.white70,
-                            fontWeight: FontWeight.w500,
-                          )
-                      ),
-                      // FIX: Use highly visible color based on theme for Estimated Cost Value
-                      Text(
-                          '₹${widget.station.pricePerUnit * 10}/hr',
-                          style: TextStyle(
-                            fontSize: 14,
-                            // Use high contrast color
-                            color: Theme
-                                .of(context)
-                                .brightness == Brightness.light
-                                ? Colors.black87
-                                : Colors.white70,
-                            fontWeight: FontWeight.bold,
-                          )
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              height: 56, // <--- INCREASED HEIGHT TO PREVENT CUTOFF (50 -> 56)
-              child: ElevatedButton(
-                onPressed: widget.station.availablePorts > 0
-                    ? () {
-                  if (currentUser.walletBalance < 50) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text(
-                          'Insufficient balance. Please add money to wallet.')),
-                    );
-                    return;
-                  }
-                  _showBookingConfirmation(context);
-                }
-                    : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00796B),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 16), // Ensure vertical padding is consistent
-                ),
-                child: const Text('Book Slot', style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
-              ),
-            ),
-
-            // --- CLEAN REPORT BUTTON AT BOTTOM ---
-            const SizedBox(height: 16),
-            Center(
-              child: TextButton.icon(
-                onPressed: _showReportDialog,
-                icon: const Icon(
-                    Icons.flag_outlined, size: 18, color: Colors.grey),
-                label: const Text("Report an Issue with this Station",
-                    style: TextStyle(color: Colors.grey)),
-              ),
-            ),
-            const SizedBox(height: 30),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showBookingConfirmation(BuildContext context) {
-    // --- CRITICAL FIX: CHECK FOR ACTIVE SESSION ---
-    final hasActiveSession = currentUser.bookings.any((b) =>
-    b.status == 'active');
-
-    if (hasActiveSession) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'You already have an active charging session. Please stop it before starting a new one.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-    // ----------------------------------------------
-
-    String bookingStatus = _selectedSlot == "now" ? "active" : "reserved";
-
-    showDialog(
-      context: context,
-      builder: (context) =>
-          AlertDialog(
-            title: const Text('Confirm Booking'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Station: ${widget.station.name}'),
-                Text('Time: ${_selectedSlot == "now"
-                    ? "Start Now"
-                    : _selectedSlot}'),
-                const SizedBox(height: 8),
-                const Text('Booking fee of ₹50 will be deducted.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const Text('Refundable if cancelled within 10 mins.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey)),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: () {
-                  // 1. DEDUCT FEE & CREATE BOOKING
-                  setState(() {
-                    currentUser.walletBalance -= 50;
-
-                    // Only decrement available ports if starting NOW.
-                    if (bookingStatus == 'active') {
-                      widget.station.availablePorts -= 1;
-                    }
-
-                    currentUser.bookings.add(Booking(
-                      id: 'B${DateTime
-                          .now()
-                          .millisecondsSinceEpoch}',
-                      stationId: widget.station.id,
-                      stationName: widget.station.name,
-                      bookingTime: DateTime.now(),
-                      cost: 50,
-                      status: bookingStatus, // 'active' or 'reserved'
-                    ));
-                  });
-
-                  // --- DISPATCH NOTIFICATION (THE FIX) ---
-                  globalNotificationManager.addNotification(
-                    title: 'Booking Confirmed!',
-                    body: '${bookingStatus == 'active'
-                        ? 'Active'
-                        : 'Reserved'} slot secured at ${widget.station.name}.',
-                    read: false,
-                  );
-                  // ---------------------------------------
-
-                  Navigator.pop(context); // Close dialog
-
-                  if (bookingStatus == 'active') {
-                    // Navigate to Charging Screen (Immediate Start)
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (context) =>
-                          ChargingScreen(station: widget.station)),
-                    );
-                  } else {
-                    // Navigate to Main Navigation (Bookings Tab)
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text(
-                          'Slot successfully reserved! Check Bookings tab.')),
-                    );
-                    // Push back to root, user will naturally see or click the Bookings tab.
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => const MainNavigation()),
-                          (route) => false,
-                    );
-                  }
-                },
-                child: Text(bookingStatus == 'active'
-                    ? 'Start Charging'
-                    : 'Confirm Reservation'),
-              ),
-            ],
-          ),
-    );
-  }
-}
-
-class _InfoBox extends StatelessWidget {
-  final String title;
-  final String value;
-  final Color color;
-  final IconData icon;
-
-  const _InfoBox({required this.title, required this.value, required this.color, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 4),
-          Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 2),
-          Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
-        ],
-      ),
-    );
-  }
-}
 
 class _TimeSlotChip extends StatelessWidget {
   final String label;
@@ -3060,7 +3057,7 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                   activeBooking.cost = totalPayable + 50;
                   activeBooking.endTime = DateTime.now();
 
-                  currentUser.transactions.insert(0, Transaction(
+                  currentUser.transactions.insert(0, WalletTransaction(
                       id: 'T_${DateTime.now().millisecondsSinceEpoch}',
                       title: 'EV Charge - ${widget.station.name}',
                       date: DateTime.now(),
@@ -3482,7 +3479,7 @@ class WalletScreen extends StatelessWidget {
     currentUser.walletBalance += amount;
 
     // 2. Add Fake Transaction
-    currentUser.transactions.insert(0, Transaction(
+    currentUser.transactions.insert(0, WalletTransaction(
         id: "ADD${DateTime.now().millisecondsSinceEpoch}",
         title: "Wallet Top-up",
         date: DateTime.now(),
