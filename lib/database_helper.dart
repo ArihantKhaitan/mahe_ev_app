@@ -470,4 +470,82 @@ class DatabaseHelper {
     _database = null;
     print('Database reset!');
   }
+  // ==========================================
+// ADMIN USER MANAGEMENT
+// ==========================================
+
+// Get all users (full details for admin)
+  Future<List<Map<String, dynamic>>> getAllUsersForAdmin() async {
+    final db = await instance.database;
+    final result = await db.query(
+      'users',
+      orderBy: 'createdAt DESC',
+    );
+    print('Fetched ${result.length} users for admin');
+    return result;
+  }
+
+// Update user details (admin function)
+  Future<bool> updateUserByAdmin({
+    required String userId,
+    String? name,
+    String? email,
+    String? password,
+    String? userType,
+    double? walletBalance,
+  }) async {
+    try {
+      final db = await instance.database;
+
+      Map<String, dynamic> updates = {};
+      if (name != null) updates['name'] = name;
+      if (email != null) updates['email'] = email.toLowerCase();
+      if (password != null) updates['password'] = password;
+      if (userType != null) updates['userType'] = userType;
+      if (walletBalance != null) updates['walletBalance'] = walletBalance;
+
+      if (updates.isEmpty) return false;
+
+      await db.update(
+        'users',
+        updates,
+        where: 'id = ?',
+        whereArgs: [userId],
+      );
+
+      print('Admin updated user: $userId');
+      return true;
+    } catch (e) {
+      print('Error updating user: $e');
+      return false;
+    }
+  }
+
+// Delete user (admin function)
+  Future<bool> deleteUserByAdmin(String userId) async {
+    try {
+      final db = await instance.database;
+
+      // Delete related data first
+      await db.delete('vehicles', where: 'userId = ?', whereArgs: [userId]);
+      await db.delete('transactions', where: 'userId = ?', whereArgs: [userId]);
+      await db.delete('bookings', where: 'userId = ?', whereArgs: [userId]);
+
+      // Delete user
+      await db.delete('users', where: 'id = ?', whereArgs: [userId]);
+
+      print('Admin deleted user: $userId');
+      return true;
+    } catch (e) {
+      print('Error deleting user: $e');
+      return false;
+    }
+  }
+
+// Get user count
+  Future<int> getUserCount() async {
+    final db = await instance.database;
+    final result = await db.rawQuery('SELECT COUNT(*) as count FROM users WHERE isAdmin = 0');
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
 }

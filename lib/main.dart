@@ -4832,6 +4832,559 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
   }
 }
 
+// ==========================================
+// ADMIN USER MANAGEMENT SCREEN (NEW)
+// ==========================================
+
+class AdminUserManagementScreen extends StatefulWidget {
+  const AdminUserManagementScreen({super.key});
+
+  @override
+  State<AdminUserManagementScreen> createState() => _AdminUserManagementScreenState();
+}
+
+class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
+  List<Map<String, dynamic>> _users = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    setState(() => _isLoading = true);
+    final users = await DatabaseHelper.instance.getAllUsersForAdmin();
+    setState(() {
+      _users = users;
+      _isLoading = false;
+    });
+  }
+
+  void _showUserDetails(Map<String, dynamic> user) {
+    final isAdmin = (user['isAdmin'] as int) == 1;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: isAdmin ? Colors.red : const Color(0xFF00796B),
+                  child: Text(
+                    (user['name'] as String? ?? 'U')[0].toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        user['name'] as String? ?? 'Unknown',
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isAdmin ? Colors.red.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          isAdmin ? 'ADMIN' : (user['userType'] as String? ?? 'student').toUpperCase(),
+                          style: TextStyle(
+                            color: isAdmin ? Colors.red : Colors.blue,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            const Divider(color: Colors.white24),
+            const SizedBox(height: 16),
+
+            // User Details
+            _buildDetailRow('User ID', user['id'] as String? ?? 'N/A', Icons.badge),
+            _buildDetailRow('Email', user['email'] as String? ?? 'N/A', Icons.email),
+            _buildDetailRow('Password', user['password'] as String? ?? 'N/A', Icons.lock, isPassword: true),
+            _buildDetailRow('Wallet Balance', '₹${(user['walletBalance'] as num? ?? 0).toStringAsFixed(2)}', Icons.account_balance_wallet),
+            _buildDetailRow('Created', _formatDate(user['createdAt'] as String?), Icons.calendar_today),
+
+            const Spacer(),
+
+            // Action Buttons
+            if (!isAdmin) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showEditUserDialog(user);
+                      },
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Edit User'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _confirmDeleteUser(user);
+                      },
+                      icon: const Icon(Icons.delete),
+                      label: const Text('Delete'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ] else
+              const Center(
+                child: Text(
+                  'Admin accounts cannot be edited here',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, IconData icon, {bool isPassword = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.grey, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: isPassword ? Colors.amber : Colors.white,
+                    fontSize: 16,
+                    fontWeight: isPassword ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isPassword)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Text(
+                'VISIBLE',
+                style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(String? isoDate) {
+    if (isoDate == null) return 'N/A';
+    try {
+      final dt = DateTime.parse(isoDate);
+      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      return 'N/A';
+    }
+  }
+
+  void _showEditUserDialog(Map<String, dynamic> user) {
+    final nameController = TextEditingController(text: user['name'] as String? ?? '');
+    final emailController = TextEditingController(text: user['email'] as String? ?? '');
+    final passwordController = TextEditingController(text: user['password'] as String? ?? '');
+    final walletController = TextEditingController(text: (user['walletBalance'] as num? ?? 0).toString());
+    String userType = user['userType'] as String? ?? 'student';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: const Text('Edit User', style: TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordController,
+                  style: const TextStyle(color: Colors.amber),
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    labelStyle: const TextStyle(color: Colors.amber),
+                    enabledBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.amber)),
+                    focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.amber)),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.refresh, color: Colors.amber),
+                      onPressed: () {
+                        passwordController.text = 'reset${DateTime.now().millisecondsSinceEpoch % 10000}';
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: walletController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Wallet Balance (₹)',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+                    focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: userType,
+                  dropdownColor: const Color(0xFF2C2C2C),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'User Type',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'student', child: Text('Student')),
+                    DropdownMenuItem(value: 'staff', child: Text('Staff')),
+                    DropdownMenuItem(value: 'guest', child: Text('Guest')),
+                  ],
+                  onChanged: (val) => setDialogState(() => userType = val!),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final success = await DatabaseHelper.instance.updateUserByAdmin(
+                  userId: user['id'] as String,
+                  name: nameController.text.trim(),
+                  email: emailController.text.trim(),
+                  password: passwordController.text.trim(),
+                  userType: userType,
+                  walletBalance: double.tryParse(walletController.text) ?? 0,
+                );
+
+                if (success) {
+                  Navigator.pop(context);
+                  _loadUsers(); // Refresh the list
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('User updated successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Failed to update user'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              child: const Text('Save Changes'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteUser(Map<String, dynamic> user) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('Delete User?', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to delete "${user['name']}"?\n\nThis will also delete all their vehicles, transactions, and bookings. This action cannot be undone.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final success = await DatabaseHelper.instance.deleteUserByAdmin(user['id'] as String);
+              Navigator.pop(context);
+
+              if (success) {
+                _loadUsers(); // Refresh the list
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('User deleted successfully'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to delete user'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Separate admins and regular users
+    final adminUsers = _users.where((u) => (u['isAdmin'] as int) == 1).toList();
+    final regularUsers = _users.where((u) => (u['isAdmin'] as int) == 0).toList();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('User Management'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadUsers,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: Colors.redAccent))
+          : _users.isEmpty
+          ? const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.people_outline, size: 80, color: Colors.grey),
+            SizedBox(height: 16),
+            Text('No users found', style: TextStyle(color: Colors.grey, fontSize: 18)),
+          ],
+        ),
+      )
+          : ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Stats Card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.red.shade900, Colors.black],
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatColumn('Total Users', '${_users.length}', Icons.people),
+                _buildStatColumn('Students', '${regularUsers.where((u) => u['userType'] == 'student').length}', Icons.school),
+                _buildStatColumn('Staff', '${regularUsers.where((u) => u['userType'] == 'staff').length}', Icons.work),
+                _buildStatColumn('Admins', '${adminUsers.length}', Icons.admin_panel_settings),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Admin Section
+          if (adminUsers.isNotEmpty) ...[
+            const Text(
+              'Administrators',
+              style: TextStyle(color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            ...adminUsers.map((user) => _buildUserCard(user, isAdmin: true)),
+            const SizedBox(height: 24),
+          ],
+
+          // Regular Users Section
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Registered Users',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                '${regularUsers.length} users',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          if (regularUsers.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: Text(
+                  'No registered users yet.\nUsers will appear here after signing up.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+            )
+          else
+            ...regularUsers.map((user) => _buildUserCard(user, isAdmin: false)),
+
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatColumn(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.white70, size: 24),
+        const SizedBox(height: 8),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _buildUserCard(Map<String, dynamic> user, {required bool isAdmin}) {
+    return Card(
+      color: const Color(0xFF2C2C2C),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onTap: () => _showUserDetails(user),
+        leading: CircleAvatar(
+          backgroundColor: isAdmin ? Colors.red.withOpacity(0.2) : const Color(0xFF00796B).withOpacity(0.2),
+          child: Text(
+            (user['name'] as String? ?? 'U')[0].toUpperCase(),
+            style: TextStyle(
+              color: isAdmin ? Colors.red : const Color(0xFF00796B),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        title: Text(
+          user['name'] as String? ?? 'Unknown',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              user['email'] as String? ?? '',
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    (user['userType'] as String? ?? 'student').toUpperCase(),
+                    style: const TextStyle(color: Colors.blue, fontSize: 10),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '₹${(user['walletBalance'] as num? ?? 0).toStringAsFixed(0)}',
+                  style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ],
+        ),
+        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+      ),
+    );
+  }
+}
+
 // --- 2. ADMIN HOME (List View + Detailed Add Button) ---
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -5470,6 +6023,17 @@ class AdminProfileScreen extends StatelessWidget {
           const Center(child: Text("Administrator", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white))),
           const Center(child: Text("arihant@manipal.edu", style: TextStyle(color: Colors.grey))),
           const SizedBox(height: 40),
+          Container(
+            decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: const Icon(Icons.people, color: Colors.white),
+              title: const Text('User Management', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('View, edit & delete users', style: TextStyle(color: Colors.grey)),
+              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminUserManagementScreen())),
+            ),
+          ),
+          const SizedBox(height: 12),
           Container(
             decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
             child: ListTile(
