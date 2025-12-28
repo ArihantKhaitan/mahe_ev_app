@@ -147,7 +147,12 @@ class MaheEVApp extends StatelessWidget {
 // --- NOTIFICATION MANAGER ---
 class NotificationManager {
   // Use a ValueNotifier to manage the list so the UI rebuilds automatically
-  final ValueNotifier<List<AppNotification>> notifications = ValueNotifier(mockNotifications);
+  final ValueNotifier<List<AppNotification>> notifications = ValueNotifier([]);
+
+  // Sync with currentUser's notifications
+  void syncWithUser() {
+    notifications.value = List.from(currentUser.notifications);
+  }
 
   void addNotification({
     required String title,
@@ -161,11 +166,16 @@ class NotificationManager {
       read: read,
     );
 
-    // Add new notification to the beginning of the list
-    notifications.value.insert(0, newNotification);
+    // Add to currentUser's notifications
+    currentUser.notifications.insert(0, newNotification);
 
-    // Create a new list instance to trigger the ValueNotifier listener in the UI
-    notifications.value = List.from(notifications.value);
+    // Sync the ValueNotifier
+    notifications.value = List.from(currentUser.notifications);
+
+    // Save to SQL if user is logged in
+    if (currentUser.id != 'GUEST' && currentUser.id.isNotEmpty) {
+      DatabaseHelper.instance.insertNotification(newNotification, currentUser.id);
+    }
   }
 }
 
@@ -350,7 +360,7 @@ class ReportedIssue {
   final String reportedBy;
   final String issueType;
   final DateTime time;
-  final String status; // 'Pending', 'Resolved'
+  String status; // 'Pending', 'In Progress', 'Resolved'
 
   ReportedIssue({
     required this.id,
@@ -360,6 +370,26 @@ class ReportedIssue {
     required this.time,
     this.status = 'Pending',
   });
+
+  // Helper to get status color
+  Color get statusColor {
+    switch (status) {
+      case 'Pending': return Colors.orange;
+      case 'In Progress': return Colors.blue;
+      case 'Resolved': return Colors.green;
+      default: return Colors.grey;
+    }
+  }
+
+  // Helper to get status icon
+  IconData get statusIcon {
+    switch (status) {
+      case 'Pending': return Icons.hourglass_empty;
+      case 'In Progress': return Icons.engineering;
+      case 'Resolved': return Icons.check_circle;
+      default: return Icons.help;
+    }
+  }
 }
 
 class Vehicle {
@@ -408,23 +438,6 @@ List<Vehicle> mockVehicles = [
     batteryCapacityKWh: 44.5,
     initialSOCPercent: 50,
   ),
-];
-
-// Global Mock User List (For Admin targeting simulation)
-List<UserProfile> mockUsers = [
-  UserProfile(
-    id: 'U002', name: 'Rahul S.', email: 'rahul.s@mahe.edu', password: '123', userType: 'student',
-    walletBalance: 1000, bookings: [], transactions: [], vehicles: [], notifications: [],
-  ),
-  UserProfile(
-    id: 'U003', name: 'Prof. Anjali', email: 'anjali@mahe.edu', password: '123', userType: 'staff',
-    walletBalance: 2000, bookings: [], transactions: [], vehicles: [], notifications: [],
-  ),
-];
-
-List<ReportedIssue> mockIssues = [
-  ReportedIssue(id: 'I1', stationName: 'MIT Quadrangle', reportedBy: 'Rahul S.', issueType: 'Connector Damaged', time: DateTime.now().subtract(const Duration(hours: 2))),
-  ReportedIssue(id: 'I2', stationName: 'NLH EV Point', reportedBy: 'Prof. Anjali', issueType: 'Payment Failed', time: DateTime.now().subtract(const Duration(days: 1))),
 ];
 
 // Initial Notifications
@@ -496,12 +509,6 @@ UserProfile currentUser = UserProfile(
   notifications: mockNotifications,
 );
 
-List<WalletTransaction> allGlobalTransactions = [
-  WalletTransaction(id: 'TXN_001', title: 'Payment - User A', date: DateTime.now().subtract(const Duration(minutes: 10)), amount: 120.0, isCredit: false),
-  WalletTransaction(id: 'TXN_002', title: 'Wallet Load - User B', date: DateTime.now().subtract(const Duration(minutes: 45)), amount: 500.0, isCredit: true),
-  WalletTransaction(id: 'TXN_003', title: 'Payment - User C', date: DateTime.now().subtract(const Duration(hours: 2)), amount: 85.0, isCredit: false),
-];
-
 // --- LOGIN SCREEN ---
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -535,6 +542,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (user != null) {
       // Login successful!
       currentUser = user;
+      globalNotificationManager.syncWithUser();
 
       // Debug: Print to console
       print('Login successful for: ${user.email}, isAdmin: ${user.isAdmin}');
@@ -566,51 +574,6 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
     }
-  }
-
-// --- FIX: _continueAsGuest() to include mock vehicles ---
-  void _continueAsGuest() {
-    setState(() => _isLoading = true);
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (mounted) {
-        // Create a mutable copy of mockVehicles list for the guest
-        List<Vehicle> guestMockVehicles = List.of(mockVehicles);
-
-        // Ensure the first one in the mock list is set as primary for the guest session
-        // Since it's a new list, we can safely overwrite its properties
-        if (guestMockVehicles.isNotEmpty) {
-          final firstVehicle = guestMockVehicles[0];
-          guestMockVehicles[0] = Vehicle(
-            id: firstVehicle.id,
-            make: firstVehicle.make,
-            model: firstVehicle.model,
-            licensePlate: firstVehicle.licensePlate,
-            connectorType: firstVehicle.connectorType,
-            batteryCapacityKWh: firstVehicle.batteryCapacityKWh,
-            initialSOCPercent: firstVehicle.initialSOCPercent,
-            isPrimary: true, // Set as primary for the session
-          );
-        }
-
-        currentUser = UserProfile(
-          id: 'GUEST',
-          name: 'Guest User',
-          email: 'guest@temp.mahe.ev',
-          password: '',
-          userType: 'guest',
-          walletBalance: 100.0,
-          bookings: [],
-          transactions: [],
-          // Use the mutable copy of the mock vehicles
-          vehicles: guestMockVehicles,
-          notifications: [], // Guest starts with an empty mutable notification list
-        );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MainNavigation()),
-        );
-      }
-    });
   }
 
   @override
@@ -724,20 +687,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: _isLoading
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : const Text('Login', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              TextButton(
-                onPressed: _isLoading ? null : _continueAsGuest,
-                child: Text(
-                  'Continue as Guest',
-                  style: TextStyle(
-                    color: neonGrey, // <--- HIGH CONTRAST GREY
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold, // Bolder
-                  ),
                 ),
               ),
 
@@ -1090,7 +1039,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final hasUnread = mockNotifications.any((n) => !n.read);
+    final hasUnread = currentUser.notifications.any((n) => !n.read);
 
     // Get the name of the primary vehicle for the compatible filter chip label
     final primaryVehicleName = currentUser.vehicles.isEmpty
@@ -1519,15 +1468,14 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                             foregroundColor: Colors.white),
                         onPressed: () {
                           setState(() {
-                            mockIssues.add(ReportedIssue(
-                                id: "REP_${DateTime
-                                    .now()
-                                    .millisecondsSinceEpoch}",
+                            final newIssue = ReportedIssue(
+                                id: "REP_${DateTime.now().millisecondsSinceEpoch}",
                                 stationName: widget.station.name,
                                 reportedBy: currentUser.name,
                                 issueType: selectedIssue,
                                 time: DateTime.now()
-                            ));
+                            );
+                            DatabaseHelper.instance.insertIssue(newIssue, currentUser.id);
                           });
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -1781,16 +1729,19 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
                       widget.station.availablePorts -= 1;
                     }
 
-                    currentUser.bookings.add(Booking(
-                      id: 'B${DateTime
-                          .now()
-                          .millisecondsSinceEpoch}',
+                    final newBooking = Booking(
+                      id: 'B${DateTime.now().millisecondsSinceEpoch}',
                       stationId: widget.station.id,
                       stationName: widget.station.name,
                       bookingTime: DateTime.now(),
                       cost: 50,
-                      status: bookingStatus, // 'active' or 'reserved'
-                    ));
+                      status: bookingStatus,
+                    );
+                    currentUser.bookings.add(newBooking);
+
+// Save to SQL
+                    DatabaseHelper.instance.saveBooking(newBooking, currentUser.id);
+                    DatabaseHelper.instance.updateWalletBalance(currentUser.id, currentUser.walletBalance);
                   });
 
                   // --- DISPATCH NOTIFICATION (THE FIX) ---
@@ -3064,6 +3015,11 @@ class _ChargingScreenState extends State<ChargingScreen> with TickerProviderStat
                       amount: totalPayable + 50,
                       isCredit: false
                   ));
+                  // Save to SQL
+                  final txn = currentUser.transactions.first;
+                  DatabaseHelper.instance.insertTransaction(txn, currentUser.id);
+                  DatabaseHelper.instance.updateWalletBalance(currentUser.id, currentUser.walletBalance);
+                  DatabaseHelper.instance.saveBooking(activeBooking!, currentUser.id);
                 }
               });
 
@@ -3284,7 +3240,9 @@ class _BookingCard extends StatelessWidget {
             onPressed: () {
               // 1. Update status/refund
               currentUser.bookings.removeWhere((b) => b.id == booking.id);
+              DatabaseHelper.instance.updateBookingStatus(booking.id, 'cancelled');
               currentUser.walletBalance += refundAmount;
+              DatabaseHelper.instance.updateWalletBalance(currentUser.id, currentUser.walletBalance);
 
               // 2. If it was an active booking, increment the available ports
               if (booking.status == 'active') {
@@ -3486,6 +3444,10 @@ class WalletScreen extends StatelessWidget {
         amount: amount,
         isCredit: true
     ));
+    // Save to SQL
+    final txn = currentUser.transactions.first;
+    DatabaseHelper.instance.insertTransaction(txn, currentUser.id);
+    DatabaseHelper.instance.updateWalletBalance(currentUser.id, currentUser.walletBalance);
 
     // 3. Update Local UI State
     setState(() {});
@@ -4516,11 +4478,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _selectedIndex = 0;
 
   final List<Widget> _adminScreens = [
-    const AdminHomeScreen(),
-    const AdminMapScreen(), // <-- This line should use the new Admin Map Screen
-    const AdminNotificationScreen(),
-    const AdminTransactionMonitor(),
-    const AdminProfileScreen(),
+    const AdminDashboardHome(),      // Tab 1: Dashboard
+    const AdminStationsTab(),         // Tab 2: Stations (List + Map)
+    const AdminUsersTab(),            // Tab 3: Users
+    const AdminAlertsTab(),           // Tab 4: Alerts & Bookings
+    const AdminSettingsTab(),         // Tab 5: Finance & Settings
   ];
 
   @override
@@ -4531,16 +4493,2673 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-        indicatorColor: Colors.redAccent.withValues(alpha: 0.2),
+        indicatorColor: Colors.redAccent.withOpacity(0.2),
         backgroundColor: Colors.black,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined, color: Colors.grey), selectedIcon: Icon(Icons.dashboard, color: Colors.redAccent), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.add_location_alt_outlined, color: Colors.grey), selectedIcon: Icon(Icons.add_location_alt, color: Colors.redAccent), label: 'Map'),
-          // UPDATED: Navigation for Send Alert
-          NavigationDestination(icon: Icon(Icons.send_outlined, color: Colors.grey), selectedIcon: Icon(Icons.send, color: Colors.redAccent), label: 'Send Alert'),
-          NavigationDestination(icon: Icon(Icons.monetization_on_outlined, color: Colors.grey), selectedIcon: Icon(Icons.monetization_on, color: Colors.redAccent), label: 'Finance'),
-          NavigationDestination(icon: Icon(Icons.person_outline, color: Colors.grey), selectedIcon: Icon(Icons.person, color: Colors.redAccent), label: 'Admin'),
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined, color: Colors.grey),
+            selectedIcon: Icon(Icons.dashboard, color: Colors.redAccent),
+            label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.ev_station_outlined, color: Colors.grey),
+            selectedIcon: Icon(Icons.ev_station, color: Colors.redAccent),
+            label: 'Stations',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_outline, color: Colors.grey),
+            selectedIcon: Icon(Icons.people, color: Colors.redAccent),
+            label: 'Users',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.notifications_outlined, color: Colors.grey),
+            selectedIcon: Icon(Icons.notifications, color: Colors.redAccent),
+            label: 'Alerts',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined, color: Colors.grey),
+            selectedIcon: Icon(Icons.settings, color: Colors.redAccent),
+            label: 'Settings',
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================
+// TAB 1: DASHBOARD HOME
+// ============================================
+class AdminDashboardHome extends StatefulWidget {
+  const AdminDashboardHome({super.key});
+
+  @override
+  State<AdminDashboardHome> createState() => _AdminDashboardHomeState();
+}
+
+class _AdminDashboardHomeState extends State<AdminDashboardHome> {
+  Map<String, dynamic> _stats = {};
+  List<Map<String, dynamic>> _recentBookings = [];
+  List<WalletTransaction> _recentTransactions = [];
+  List<ReportedIssue> _pendingIssues = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboardData();
+  }
+
+  Future<void> _loadDashboardData() async {
+    final stats = await DatabaseHelper.instance.getDashboardStats();
+    final bookings = await DatabaseHelper.instance.getAllBookingsWithUserInfo();
+    final transactions = await DatabaseHelper.instance.getAllTransactions();
+    final issues = await DatabaseHelper.instance.getAllIssues();
+
+    if (mounted) {
+      setState(() {
+        _stats = stats;
+        _recentBookings = bookings.take(5).toList();
+        _recentTransactions = transactions.take(5).toList();
+        _pendingIssues = issues.where((i) => i.status == 'Pending').toList();
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Admin Dashboard'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              setState(() => _isLoading = true);
+              _loadDashboardData();
+            },
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+        onRefresh: _loadDashboardData,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Stats Grid
+              _buildStatsGrid(),
+              const SizedBox(height: 24),
+
+              // Pending Issues Alert
+              if (_pendingIssues.isNotEmpty) ...[
+                _buildIssuesAlert(),
+                const SizedBox(height: 24),
+              ],
+
+              // Quick Actions
+              const Text('Quick Actions', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              _buildQuickActions(),
+              const SizedBox(height: 24),
+
+              // Recent Bookings
+              _buildSectionHeader('Recent Bookings', () {
+                // Navigate to full bookings list
+              }),
+              const SizedBox(height: 12),
+              _buildRecentBookings(),
+              const SizedBox(height: 24),
+
+              // Recent Transactions
+              _buildSectionHeader('Recent Transactions', () {
+                // Navigate to full transactions list
+              }),
+              const SizedBox(height: 12),
+              _buildRecentTransactions(),
+              const SizedBox(height: 80),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsGrid() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: _buildStatCard('Total Users', '${_stats['totalUsers'] ?? 0}', Icons.people, Colors.blue)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildStatCard('Active Sessions', '${_stats['activeBookings'] ?? 0}', Icons.bolt, Colors.orange)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildStatCard('Today\'s Bookings', '${_stats['todayBookings'] ?? 0}', Icons.calendar_today, Colors.purple)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildStatCard('Today\'s Revenue', '₹${(_stats['todayRevenue'] ?? 0.0).toStringAsFixed(0)}', Icons.currency_rupee, Colors.green)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildStatCard('Pending Issues', '${_pendingIssues.length}', Icons.warning_amber, _pendingIssues.isNotEmpty ? Colors.red : Colors.grey)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildStatCard('Total Stations', '${mockStations.length}', Icons.ev_station, Colors.teal)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+                Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIssuesAlert() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber, color: Colors.red, size: 32),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${_pendingIssues.length} Pending Issues', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16)),
+                const Text('Tap to view and resolve', style: TextStyle(color: Colors.red, fontSize: 12)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: Colors.red),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildActionButton('Add Station', Icons.add_location, Colors.blue, () {
+            // Will be handled by Stations tab
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Go to Stations tab to add a new station')),
+            );
+          }),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildActionButton('Send Alert', Icons.send, Colors.orange, () {
+            // Will be handled by Alerts tab
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Go to Alerts tab to send notifications')),
+            );
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton(String label, IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, VoidCallback onViewAll) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        TextButton(
+          onPressed: onViewAll,
+          child: const Text('View All', style: TextStyle(color: Colors.redAccent)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentBookings() {
+    if (_recentBookings.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2C),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(child: Text('No bookings yet', style: TextStyle(color: Colors.grey))),
+      );
+    }
+
+    return Column(
+      children: _recentBookings.map((b) {
+        final status = b['status'] as String? ?? 'unknown';
+        final statusColor = status == 'completed' ? Colors.green : (status == 'cancelled' ? Colors.red : Colors.orange);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.ev_station, color: statusColor, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(b['stationName'] as String? ?? 'Unknown', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    Text(b['userName'] as String? ?? 'Unknown User', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildRecentTransactions() {
+    if (_recentTransactions.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2C),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(child: Text('No transactions yet', style: TextStyle(color: Colors.grey))),
+      );
+    }
+
+    return Column(
+      children: _recentTransactions.map((t) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                t.isCredit ? Icons.arrow_downward : Icons.arrow_upward,
+                color: t.isCredit ? Colors.green : Colors.red,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(t.title, style: const TextStyle(color: Colors.white)),
+              ),
+              Text(
+                '${t.isCredit ? '+' : '-'}₹${t.amount.toStringAsFixed(0)}',
+                style: TextStyle(color: t.isCredit ? Colors.green : Colors.red, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ============================================
+// TAB 2: STATIONS (List + Map Toggle)
+// ============================================
+class AdminStationsTab extends StatefulWidget {
+  const AdminStationsTab({super.key});
+
+  @override
+  State<AdminStationsTab> createState() => _AdminStationsTabState();
+}
+
+class _AdminStationsTabState extends State<AdminStationsTab> {
+  bool _isMapView = false;
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+  final MapController _mapController = MapController();
+  final LatLng _manipalCenter = const LatLng(13.350, 74.790);
+
+  List<Station> get _filteredStations {
+    if (_searchQuery.isEmpty) return mockStations;
+    return mockStations.where((s) =>
+    s.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+        s.location.toLowerCase().contains(_searchQuery.toLowerCase())
+    ).toList();
+  }
+
+  void _openStationInspector(Station station) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _StationInspectorSheet(
+        station: station,
+        onUpdate: () => setState(() {}),
+      ),
+    );
+  }
+
+  void _addNewStation({double? lat, double? lon}) {
+    final nameController = TextEditingController();
+    final locController = TextEditingController(text: lat != null ? "New Location" : "");
+    final priceController = TextEditingController(text: "8.0");
+    final spotsController = TextEditingController(text: "4");
+    String selectedConnector = 'CCS Type 2';
+    bool isFast = false;
+    bool isSolar = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            title: const Text("Add New Station", style: TextStyle(color: Colors.white)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (lat != null && lon != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Text(
+                        "Location: ${lat.toStringAsFixed(4)}, ${lon.toStringAsFixed(4)}",
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ),
+                  TextField(
+                    controller: nameController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: "Station Name *", labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: locController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: "Location Description", labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
+                    value: selectedConnector,
+                    dropdownColor: const Color(0xFF2C2C2C),
+                    style: const TextStyle(color: Colors.white),
+                    items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    onChanged: (val) => setDialogState(() => selectedConnector = val!),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: priceController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(labelText: "Price (₹/kWh)", labelStyle: TextStyle(color: Colors.grey)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: spotsController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(labelText: "Ports", labelStyle: TextStyle(color: Colors.grey)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    title: const Text("Fast Charging", style: TextStyle(color: Colors.white)),
+                    value: isFast,
+                    onChanged: (val) => setDialogState(() => isFast = val),
+                    activeColor: Colors.redAccent,
+                  ),
+                  SwitchListTile(
+                    title: const Text("Solar Powered", style: TextStyle(color: Colors.white)),
+                    value: isSolar,
+                    onChanged: (val) => setDialogState(() => isSolar = val),
+                    activeColor: Colors.greenAccent,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () {
+                  if (nameController.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please enter a station name')),
+                    );
+                    return;
+                  }
+
+                  final newStation = Station(
+                    id: 'STN_${DateTime.now().millisecondsSinceEpoch}',
+                    name: nameController.text,
+                    location: locController.text.isEmpty ? "Campus Area" : locController.text,
+                    distance: 0.5,
+                    isFastCharger: isFast,
+                    totalPorts: int.tryParse(spotsController.text) ?? 4,
+                    availablePorts: int.tryParse(spotsController.text) ?? 4,
+                    isSharedPower: false,
+                    isSolarPowered: isSolar,
+                    mapX: lon ?? 74.790,
+                    mapY: lat ?? 13.350,
+                    parkingSpaces: int.tryParse(spotsController.text) ?? 4,
+                    availableParking: int.tryParse(spotsController.text) ?? 4,
+                    pricePerUnit: double.tryParse(priceController.text) ?? 8.0,
+                    connectorType: selectedConnector,
+                  );
+
+                  setState(() {
+                    mockStations.add(newStation);
+                  });
+                  DatabaseHelper.instance.insertStation(newStation);
+
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('${newStation.name} added successfully!')),
+                  );
+                },
+                child: const Text("Add Station"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Stations'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        actions: [
+          // Toggle View Button
+          IconButton(
+            icon: Icon(_isMapView ? Icons.list : Icons.map),
+            onPressed: () => setState(() => _isMapView = !_isMapView),
+            tooltip: _isMapView ? 'List View' : 'Map View',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => setState(() {}),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Search Bar
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF1E1E1E),
+            child: TextField(
+              controller: _searchController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search stations...',
+                hintStyle: const TextStyle(color: Colors.grey),
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear, color: Colors.grey),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFF2C2C2C),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: (value) => setState(() => _searchQuery = value),
+            ),
+          ),
+
+          // Content (List or Map)
+          Expanded(
+            child: _isMapView ? _buildMapView() : _buildListView(),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _addNewStation(),
+        backgroundColor: Colors.redAccent,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Station'),
+      ),
+    );
+  }
+
+  Widget _buildListView() {
+    if (_filteredStations.isEmpty) {
+      return const Center(
+        child: Text('No stations found', style: TextStyle(color: Colors.grey)),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _filteredStations.length,
+      itemBuilder: (context, index) {
+        final station = _filteredStations[index];
+        final hasIssues = false; // Will be updated with actual issue count
+
+        return Card(
+          color: const Color(0xFF2C2C2C),
+          margin: const EdgeInsets.only(bottom: 12),
+          child: InkWell(
+            onTap: () => _openStationInspector(station),
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // Station Icon
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: station.availablePorts > 0
+                          ? Colors.green.withOpacity(0.2)
+                          : Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      station.isFastCharger ? Icons.flash_on : Icons.ev_station,
+                      color: station.availablePorts > 0 ? Colors.green : Colors.red,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+
+                  // Station Info
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          station.name,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          station.location,
+                          style: const TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            _buildTag('${station.availablePorts}/${station.totalPorts} ports',
+                                station.availablePorts > 0 ? Colors.green : Colors.red),
+                            const SizedBox(width: 8),
+                            _buildTag(station.connectorType, Colors.blue),
+                            if (station.isSolarPowered) ...[
+                              const SizedBox(width: 8),
+                              _buildTag('Solar', Colors.orange),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Arrow
+                  const Icon(Icons.chevron_right, color: Colors.grey),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTag(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildMapView() {
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: _manipalCenter,
+        initialZoom: 14.0,
+        onTap: (tapPosition, latLng) {
+          _addNewStation(lat: latLng.latitude, lon: latLng.longitude);
+        },
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.mahe.ev',
+        ),
+        MarkerLayer(
+          markers: _filteredStations.map((station) {
+            return Marker(
+              point: LatLng(station.mapY, station.mapX),
+              width: 120,
+              height: 80,
+              child: GestureDetector(
+                onTap: () => _openStationInspector(station),
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.location_on,
+                      color: station.availablePorts > 0 ? Colors.green : Colors.red,
+                      size: 40,
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
+                      ),
+                      child: Text(
+                        station.name,
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+}
+
+// ============================================
+// TAB 3: USERS
+// ============================================
+class AdminUsersTab extends StatefulWidget {
+  const AdminUsersTab({super.key});
+
+  @override
+  State<AdminUsersTab> createState() => _AdminUsersTabState();
+}
+
+class _AdminUsersTabState extends State<AdminUsersTab> {
+  List<Map<String, dynamic>> _users = [];
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    final users = await DatabaseHelper.instance.getAllUsersForAdmin();
+    if (mounted) {
+      setState(() {
+        _users = users.where((u) => (u['isAdmin'] as int) == 0).toList(); // Exclude admin
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredUsers {
+    if (_searchQuery.isEmpty) return _users;
+    return _users.where((u) {
+      final name = (u['name'] as String? ?? '').toLowerCase();
+      final email = (u['email'] as String? ?? '').toLowerCase();
+      final query = _searchQuery.toLowerCase();
+      return name.contains(query) || email.contains(query);
+    }).toList();
+  }
+
+  int get _studentCount => _users.where((u) => u['userType'] == 'student').length;
+  int get _staffCount => _users.where((u) => u['userType'] == 'staff').length;
+
+  void _showUserDetails(Map<String, dynamic> user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: const Color(0xFF00796B).withOpacity(0.2),
+                  child: Text(
+                    (user['name'] as String? ?? 'U')[0].toUpperCase(),
+                    style: const TextStyle(color: Color(0xFF00796B), fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        user['name'] as String? ?? 'Unknown',
+                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        user['email'] as String? ?? '',
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // User Info
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  _buildInfoRow('User ID', user['id'] as String? ?? 'N/A', Icons.badge),
+                  const Divider(color: Colors.white12),
+                  _buildInfoRow('Type', (user['userType'] as String? ?? 'student').toUpperCase(), Icons.person),
+                  const Divider(color: Colors.white12),
+                  _buildInfoRow('Wallet', '₹${(user['walletBalance'] as num? ?? 0).toStringAsFixed(2)}', Icons.account_balance_wallet),
+                  const Divider(color: Colors.white12),
+                  _buildInfoRow('Password', user['password'] as String? ?? '***', Icons.lock),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Action Buttons
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => AdminUserDetailScreen(user: user)),
+                  );
+                },
+                icon: const Icon(Icons.visibility),
+                label: const Text('View Full Details'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00796B),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _showEditUserDialog(user);
+                    },
+                    icon: const Icon(Icons.edit),
+                    label: const Text('Edit'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _confirmDeleteUser(user);
+                    },
+                    icon: const Icon(Icons.delete),
+                    label: const Text('Delete'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _showRefundDialog(user);
+                    },
+                    icon: const Icon(Icons.currency_rupee),
+                    label: const Text('Issue Refund'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.grey, size: 20),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          const Spacer(),
+          Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  void _showEditUserDialog(Map<String, dynamic> user) {
+    final nameController = TextEditingController(text: user['name'] as String? ?? '');
+    final emailController = TextEditingController(text: user['email'] as String? ?? '');
+    final passwordController = TextEditingController(text: user['password'] as String? ?? '');
+    final walletController = TextEditingController(text: (user['walletBalance'] as num? ?? 0).toString());
+    String selectedType = user['userType'] as String? ?? 'student';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            title: const Text('Edit User', style: TextStyle(color: Colors.white)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Name', labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: emailController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Email', labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: passwordController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Password', labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedType,
+                    dropdownColor: const Color(0xFF2C2C2C),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'User Type', labelStyle: TextStyle(color: Colors.grey)),
+                    items: const ['student', 'staff', 'faculty']
+                        .map((e) => DropdownMenuItem(value: e, child: Text(e.toUpperCase())))
+                        .toList(),
+                    onChanged: (val) => setDialogState(() => selectedType = val!),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: walletController,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(labelText: 'Wallet Balance (₹)', labelStyle: TextStyle(color: Colors.grey)),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final success = await DatabaseHelper.instance.updateUserByAdmin(
+                    userId: user['id'] as String,
+                    name: nameController.text,
+                    email: emailController.text,
+                    password: passwordController.text,
+                    userType: selectedType,
+                    walletBalance: double.tryParse(walletController.text),
+                  );
+
+                  if (success) {
+                    Navigator.pop(context);
+                    _loadUsers();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('User updated successfully')),
+                    );
+                  }
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _confirmDeleteUser(Map<String, dynamic> user) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('Delete User?', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to delete ${user['name']}? This will also delete all their bookings, transactions, and vehicles.',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final success = await DatabaseHelper.instance.deleteUserByAdmin(user['id'] as String);
+              Navigator.pop(context);
+
+              if (success) {
+                _loadUsers();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('User deleted successfully')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRefundDialog(Map<String, dynamic> user) {
+    final amountController = TextEditingController();
+    final reasonController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('Issue Refund', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Refund to: ${user['name']}',
+              style: const TextStyle(color: Colors.grey),
+            ),
+            Text(
+              'Current Balance: ₹${(user['walletBalance'] as num? ?? 0).toStringAsFixed(2)}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Refund Amount (₹)',
+                labelStyle: TextStyle(color: Colors.grey),
+                prefixText: '₹ ',
+                prefixStyle: TextStyle(color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Reason (optional)',
+                labelStyle: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final amount = double.tryParse(amountController.text);
+              if (amount == null || amount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a valid amount')),
+                );
+                return;
+              }
+
+              final currentBalance = (user['walletBalance'] as num? ?? 0).toDouble();
+              final newBalance = currentBalance + amount;
+
+              // Update wallet balance
+              await DatabaseHelper.instance.updateUserByAdmin(
+                userId: user['id'] as String,
+                walletBalance: newBalance,
+              );
+
+              // Create refund transaction
+              final refundTxn = WalletTransaction(
+                id: 'REFUND_${DateTime.now().millisecondsSinceEpoch}',
+                title: 'Admin Refund${reasonController.text.isNotEmpty ? ' - ${reasonController.text}' : ''}',
+                date: DateTime.now(),
+                amount: amount,
+                isCredit: true,
+              );
+              await DatabaseHelper.instance.insertTransaction(refundTxn, user['id'] as String);
+
+              Navigator.pop(context);
+              _loadUsers();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('₹${amount.toStringAsFixed(0)} refunded to ${user['name']}')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Issue Refund'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Users'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              setState(() => _isLoading = true);
+              _loadUsers();
+            },
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+        children: [
+          // Stats Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF1E1E1E),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatItem('Total', _users.length, Colors.white),
+                _buildStatItem('Students', _studentCount, Colors.blue),
+                _buildStatItem('Staff', _staffCount, Colors.green),
+              ],
+            ),
+          ),
+
+          // Search Bar
+          Container(
+            padding: const EdgeInsets.all(16),
+            child: TextField(
+              controller: _searchController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search by name or email...',
+                hintStyle: const TextStyle(color: Colors.grey),
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                  icon: const Icon(Icons.clear, color: Colors.grey),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFF2C2C2C),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: (value) => setState(() => _searchQuery = value),
+            ),
+          ),
+
+          // User List
+          Expanded(
+            child: _filteredUsers.isEmpty
+                ? const Center(
+              child: Text('No users found', style: TextStyle(color: Colors.grey)),
+            )
+                : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _filteredUsers.length,
+              itemBuilder: (context, index) {
+                final user = _filteredUsers[index];
+                return Card(
+                  color: const Color(0xFF2C2C2C),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    onTap: () => _showUserDetails(user),
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFF00796B).withOpacity(0.2),
+                      child: Text(
+                        (user['name'] as String? ?? 'U')[0].toUpperCase(),
+                        style: const TextStyle(color: Color(0xFF00796B), fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    title: Text(
+                      user['name'] as String? ?? 'Unknown',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Row(
+                      children: [
+                        Text(
+                          user['email'] as String? ?? '',
+                          style: const TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          '₹${(user['walletBalance'] as num? ?? 0).toStringAsFixed(0)}',
+                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            (user['userType'] as String? ?? 'student').toUpperCase(),
+                            style: const TextStyle(color: Colors.blue, fontSize: 9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, int value, Color color) {
+    return Column(
+      children: [
+        Text('$value', style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+}
+
+// ============================================
+// TAB 4: ALERTS & BOOKINGS
+// ============================================
+class AdminAlertsTab extends StatefulWidget {
+  const AdminAlertsTab({super.key});
+
+  @override
+  State<AdminAlertsTab> createState() => _AdminAlertsTabState();
+}
+
+class _AdminAlertsTabState extends State<AdminAlertsTab> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Alerts & Bookings'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white54,
+          tabs: const [
+            Tab(text: 'Send Alert'),
+            Tab(text: 'All Bookings'),
+            Tab(text: 'Sent History'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: const [
+          _SendAlertSubTab(),
+          _AllBookingsSubTab(),
+          _NotificationHistorySubTab(),
+        ],
+      ),
+    );
+  }
+}
+
+// --- Sub-Tab 1: Send Alert ---
+class _SendAlertSubTab extends StatefulWidget {
+  const _SendAlertSubTab();
+
+  @override
+  State<_SendAlertSubTab> createState() => _SendAlertSubTabState();
+}
+
+class _SendAlertSubTabState extends State<_SendAlertSubTab> {
+  final _titleController = TextEditingController();
+  final _bodyController = TextEditingController();
+  final _searchController = TextEditingController();
+  String _targetType = 'Global (All Users)';
+  String? _selectedUserId;
+  List<UserProfile> _users = [];
+  List<UserProfile> _filteredUsers = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    final users = await DatabaseHelper.instance.getAllUsers();
+    if (mounted) {
+      setState(() {
+        _users = users;
+        _filteredUsers = users;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _filterUsers(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredUsers = _users;
+      } else {
+        _filteredUsers = _users.where((u) =>
+        u.name.toLowerCase().contains(query.toLowerCase()) ||
+            u.email.toLowerCase().contains(query.toLowerCase())
+        ).toList();
+      }
+    });
+  }
+
+  Future<void> _sendNotification() async {
+    if (_titleController.text.isEmpty || _bodyController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a title and message')),
+      );
+      return;
+    }
+
+    int recipients = 0;
+    final notification = AppNotification(
+      title: _titleController.text,
+      body: _bodyController.text,
+      time: DateTime.now(),
+    );
+
+    if (_targetType == 'Global (All Users)') {
+      for (var user in _users) {
+        await DatabaseHelper.instance.insertNotification(notification, user.id);
+        recipients++;
+      }
+
+      // Also save to notification history
+      await DatabaseHelper.instance.insertSentNotification(
+        title: _titleController.text,
+        body: _bodyController.text,
+        targetType: 'Global',
+        targetUserId: null,
+        targetUserName: 'All Users ($recipients)',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Alert sent to $recipients users')),
+      );
+    } else if (_selectedUserId != null) {
+      final targetUser = _users.firstWhereOrNull((u) => u.id == _selectedUserId);
+      if (targetUser != null) {
+        await DatabaseHelper.instance.insertNotification(notification, targetUser.id);
+
+        // Save to notification history
+        await DatabaseHelper.instance.insertSentNotification(
+          title: _titleController.text,
+          body: _bodyController.text,
+          targetType: 'Specific',
+          targetUserId: targetUser.id,
+          targetUserName: targetUser.name,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Alert sent to ${targetUser.name}')),
+        );
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a user')),
+      );
+      return;
+    }
+
+    // Clear form
+    _titleController.clear();
+    _bodyController.clear();
+    setState(() {
+      _targetType = 'Global (All Users)';
+      _selectedUserId = null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Target Type Selector
+          const Text('Target Audience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2C2C),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _targetType,
+                isExpanded: true,
+                dropdownColor: const Color(0xFF2C2C2C),
+                style: const TextStyle(color: Colors.white),
+                items: const [
+                  DropdownMenuItem(value: 'Global (All Users)', child: Text('Global (All Users)')),
+                  DropdownMenuItem(value: 'Specific User', child: Text('Specific User')),
+                ],
+                onChanged: (val) => setState(() {
+                  _targetType = val!;
+                  _selectedUserId = null;
+                  _searchController.clear();
+                  _filteredUsers = _users;
+                }),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // User Selector (if specific user)
+          if (_targetType == 'Specific User') ...[
+            const Text('Select User', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+
+            // Search field
+            TextField(
+              controller: _searchController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search users...',
+                hintStyle: const TextStyle(color: Colors.grey),
+                prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                filled: true,
+                fillColor: const Color(0xFF2C2C2C),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onChanged: _filterUsers,
+            ),
+            const SizedBox(height: 8),
+
+            // User list
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: _filteredUsers.isEmpty
+                  ? const Center(child: Text('No users found', style: TextStyle(color: Colors.grey)))
+                  : ListView.builder(
+                itemCount: _filteredUsers.length,
+                itemBuilder: (context, index) {
+                  final user = _filteredUsers[index];
+                  final isSelected = _selectedUserId == user.id;
+                  return ListTile(
+                    onTap: () => setState(() => _selectedUserId = user.id),
+                    leading: CircleAvatar(
+                      backgroundColor: isSelected
+                          ? Colors.redAccent
+                          : const Color(0xFF00796B).withOpacity(0.2),
+                      child: Text(
+                        user.name[0].toUpperCase(),
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : const Color(0xFF00796B),
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      user.name,
+                      style: TextStyle(
+                        color: isSelected ? Colors.redAccent : Colors.white,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${user.email} • ${user.userType}',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(Icons.check_circle, color: Colors.redAccent)
+                        : null,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Notification Title
+          const Text('Notification Title', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _titleController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'e.g., Maintenance Alert',
+              hintStyle: const TextStyle(color: Colors.grey),
+              filled: true,
+              fillColor: const Color(0xFF2C2C2C),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Notification Body
+          const Text('Message', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _bodyController,
+            style: const TextStyle(color: Colors.white),
+            maxLines: 4,
+            decoration: InputDecoration(
+              hintText: 'Enter your message here...',
+              hintStyle: const TextStyle(color: Colors.grey),
+              filled: true,
+              fillColor: const Color(0xFF2C2C2C),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Send Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _sendNotification,
+              icon: const Icon(Icons.send),
+              label: const Text('Send Notification', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _bodyController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+}
+
+// --- Sub-Tab 2: All Bookings ---
+class _AllBookingsSubTab extends StatefulWidget {
+  const _AllBookingsSubTab();
+
+  @override
+  State<_AllBookingsSubTab> createState() => _AllBookingsSubTabState();
+}
+
+class _AllBookingsSubTabState extends State<_AllBookingsSubTab> {
+  List<Map<String, dynamic>> _bookings = [];
+  bool _isLoading = true;
+  String _filterStatus = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBookings();
+  }
+
+  Future<void> _loadBookings() async {
+    final bookings = await DatabaseHelper.instance.getAllBookingsWithUserInfo();
+    if (mounted) {
+      setState(() {
+        _bookings = bookings;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredBookings {
+    if (_filterStatus == 'all') return _bookings;
+    return _bookings.where((b) => b['status'] == _filterStatus).toList();
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'completed': return Colors.green;
+      case 'cancelled': return Colors.red;
+      case 'active': return Colors.orange;
+      case 'reserved': return Colors.blue;
+      default: return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    int total = _bookings.length;
+    int active = _bookings.where((b) => b['status'] == 'active').length;
+    int completed = _bookings.where((b) => b['status'] == 'completed').length;
+    int cancelled = _bookings.where((b) => b['status'] == 'cancelled').length;
+
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : Column(
+      children: [
+        // Stats Header
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: const Color(0xFF1E1E1E),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatItem('Total', total, Colors.white),
+              _buildStatItem('Active', active, Colors.orange),
+              _buildStatItem('Done', completed, Colors.green),
+              _buildStatItem('Cancelled', cancelled, Colors.red),
+            ],
+          ),
+        ),
+
+        // Filter Chips
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip('all', 'All'),
+                _buildFilterChip('active', 'Active'),
+                _buildFilterChip('reserved', 'Reserved'),
+                _buildFilterChip('completed', 'Completed'),
+                _buildFilterChip('cancelled', 'Cancelled'),
+              ],
+            ),
+          ),
+        ),
+
+        // Bookings List
+        Expanded(
+          child: _filteredBookings.isEmpty
+              ? const Center(child: Text('No bookings found', style: TextStyle(color: Colors.grey)))
+              : RefreshIndicator(
+            onRefresh: _loadBookings,
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _filteredBookings.length,
+              itemBuilder: (context, index) {
+                final b = _filteredBookings[index];
+                final status = b['status'] as String? ?? 'unknown';
+                final statusColor = _getStatusColor(status);
+                final bookingTime = DateTime.parse(b['bookingTime'] as String);
+
+                return Card(
+                  color: const Color(0xFF2C2C2C),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                b['stationName'] as String? ?? 'Unknown',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                status.toUpperCase(),
+                                style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.person, color: Colors.grey, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              b['userName'] as String? ?? 'Unknown',
+                              style: const TextStyle(color: Colors.white70, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '${bookingTime.day}/${bookingTime.month}/${bookingTime.year} ${bookingTime.hour}:${bookingTime.minute.toString().padLeft(2, '0')}',
+                              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            ),
+                            Text(
+                              '₹${(b['cost'] as num? ?? 0).toStringAsFixed(0)}',
+                              style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatItem(String label, int value, Color color) {
+    return Column(
+      children: [
+        Text('$value', style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String value, String label) {
+    final isSelected = _filterStatus == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (selected) => setState(() => _filterStatus = value),
+        selectedColor: Colors.redAccent,
+        checkmarkColor: Colors.white,
+        labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.grey),
+        backgroundColor: const Color(0xFF2C2C2C),
+      ),
+    );
+  }
+}
+
+// --- Sub-Tab 3: Notification History ---
+class _NotificationHistorySubTab extends StatefulWidget {
+  const _NotificationHistorySubTab();
+
+  @override
+  State<_NotificationHistorySubTab> createState() => _NotificationHistorySubTabState();
+}
+
+class _NotificationHistorySubTabState extends State<_NotificationHistorySubTab> {
+  List<Map<String, dynamic>> _sentNotifications = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    final notifications = await DatabaseHelper.instance.getSentNotifications();
+    if (mounted) {
+      setState(() {
+        _sentNotifications = notifications;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : _sentNotifications.isEmpty
+        ? const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.notifications_off, color: Colors.grey, size: 64),
+          SizedBox(height: 16),
+          Text('No notifications sent yet', style: TextStyle(color: Colors.grey)),
+        ],
+      ),
+    )
+        : RefreshIndicator(
+      onRefresh: _loadHistory,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _sentNotifications.length,
+        itemBuilder: (context, index) {
+          final n = _sentNotifications[index];
+          final sentTime = DateTime.parse(n['sentAt'] as String);
+          final isGlobal = n['targetType'] == 'Global';
+
+          return Card(
+            color: const Color(0xFF2C2C2C),
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isGlobal ? Icons.public : Icons.person,
+                        color: isGlobal ? Colors.blue : Colors.orange,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: (isGlobal ? Colors.blue : Colors.orange).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          n['targetUserName'] as String? ?? 'Unknown',
+                          style: TextStyle(
+                            color: isGlobal ? Colors.blue : Colors.orange,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${sentTime.day}/${sentTime.month} ${sentTime.hour}:${sentTime.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(color: Colors.grey, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    n['title'] as String? ?? 'No Title',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    n['body'] as String? ?? '',
+                    style: const TextStyle(color: Colors.grey),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ============================================
+// TAB 5: FINANCE & SETTINGS
+// ============================================
+class AdminSettingsTab extends StatefulWidget {
+  const AdminSettingsTab({super.key});
+
+  @override
+  State<AdminSettingsTab> createState() => _AdminSettingsTabState();
+}
+
+class _AdminSettingsTabState extends State<AdminSettingsTab> {
+  List<WalletTransaction> _transactions = [];
+  Map<String, dynamic> _stats = {};
+  bool _isLoading = true;
+  String _filterType = 'all'; // all, credit, debit
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    final transactions = await DatabaseHelper.instance.getAllTransactions();
+    final stats = await DatabaseHelper.instance.getDashboardStats();
+    if (mounted) {
+      setState(() {
+        _transactions = transactions;
+        _stats = stats;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<WalletTransaction> get _filteredTransactions {
+    if (_filterType == 'all') return _transactions;
+    if (_filterType == 'credit') return _transactions.where((t) => t.isCredit).toList();
+    return _transactions.where((t) => !t.isCredit).toList();
+  }
+
+  double get _totalRevenue => _transactions.where((t) => !t.isCredit).fold(0, (sum, t) => sum + t.amount);
+  double get _totalLoads => _transactions.where((t) => t.isCredit).fold(0, (sum, t) => sum + t.amount);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('Finance & Settings'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              setState(() => _isLoading = true);
+              _loadData();
+            },
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Finance Section
+            _buildFinanceSection(),
+
+            const Divider(color: Colors.white12, height: 32),
+
+            // Settings Section
+            _buildSettingsSection(),
+
+            const SizedBox(height: 100),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFinanceSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Revenue Cards
+        Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Financial Overview',
+                style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+
+              // Total Revenue Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.green.shade700, Colors.green.shade900],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.trending_up, color: Colors.white70, size: 20),
+                        SizedBox(width: 8),
+                        Text('Total Revenue', style: TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '₹${_totalRevenue.toStringAsFixed(2)}',
+                      style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                    ),
+                    const Text('From all charging sessions', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Stats Row
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.account_balance_wallet, color: Colors.blue, size: 24),
+                          const SizedBox(height: 8),
+                          Text(
+                            '₹${_totalLoads.toStringAsFixed(0)}',
+                            style: const TextStyle(color: Colors.blue, fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('Total Wallet Loads', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.receipt_long, color: Colors.purple, size: 24),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${_transactions.length}',
+                            style: const TextStyle(color: Colors.purple, fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                          const Text('Total Transactions', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Today's Stats Row
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.today, color: Colors.orange, size: 20),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '₹${(_stats['todayRevenue'] ?? 0.0).toStringAsFixed(0)}',
+                                style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.bold),
+                              ),
+                              const Text("Today's Revenue", style: TextStyle(color: Colors.grey, fontSize: 10)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2C),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.bolt, color: Colors.amber, size: 20),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${_stats['todayBookings'] ?? 0}',
+                                style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
+                              ),
+                              const Text("Today's Bookings", style: TextStyle(color: Colors.grey, fontSize: 10)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // Transaction Filter
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Recent Transactions', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C2C2C),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _filterType,
+                    dropdownColor: const Color(0xFF2C2C2C),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('All')),
+                      DropdownMenuItem(value: 'credit', child: Text('Credits')),
+                      DropdownMenuItem(value: 'debit', child: Text('Debits')),
+                    ],
+                    onChanged: (val) => setState(() => _filterType = val!),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Transaction List
+        _filteredTransactions.isEmpty
+            ? Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2C2C2C),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Center(
+            child: Text('No transactions found', style: TextStyle(color: Colors.grey)),
+          ),
+        )
+            : ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: _filteredTransactions.length > 20 ? 20 : _filteredTransactions.length,
+          itemBuilder: (context, index) {
+            final t = _filteredTransactions[index];
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2C2C2C),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: (t.isCredit ? Colors.green : Colors.red).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      t.isCredit ? Icons.arrow_downward : Icons.arrow_upward,
+                      color: t.isCredit ? Colors.green : Colors.red,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t.title,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${t.date.day}/${t.date.month}/${t.date.year} ${t.date.hour}:${t.date.minute.toString().padLeft(2, '0')}',
+                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '${t.isCredit ? '+' : '-'}₹${t.amount.toStringAsFixed(0)}',
+                    style: TextStyle(
+                      color: t.isCredit ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        if (_filteredTransactions.length > 20)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: Text(
+                'Showing 20 of ${_filteredTransactions.length} transactions',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSettingsSection() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Admin Settings',
+            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+
+          // Admin Profile Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2C2C),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.redAccent,
+                  child: Icon(Icons.admin_panel_settings, size: 30, color: Colors.white),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        currentUser.name,
+                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        currentUser.email,
+                        style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'ADMINISTRATOR',
+                          style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Settings Options
+          _buildSettingsOption(
+            'Institution Bank Details',
+            'Manage MAHE Main Account',
+            Icons.account_balance,
+                () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BankDetailsScreen())),
+          ),
+          const SizedBox(height: 12),
+          _buildSettingsOption(
+            'Station Port Management',
+            'Manually adjust port availability',
+            Icons.settings_input_component,
+                () => _showPortManagementDialog(),
+          ),
+          const SizedBox(height: 12),
+          _buildSettingsOption(
+            'Export Data',
+            'Download reports and data',
+            Icons.download,
+                () => _showExportDialog(),
+          ),
+          const SizedBox(height: 24),
+
+          // Logout Button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                      (route) => false,
+                );
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text('Logout', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsOption(String title, String subtitle, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2C),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.grey),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPortManagementDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('Port Management', style: TextStyle(color: Colors.white)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: ListView.builder(
+            itemCount: mockStations.length,
+            itemBuilder: (context, index) {
+              final station = mockStations[index];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(station.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          Text('${station.availablePorts}/${station.totalPorts} ports available', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle, color: Colors.red),
+                          onPressed: station.availablePorts > 0
+                              ? () {
+                            setState(() {
+                              station.availablePorts--;
+                            });
+                            DatabaseHelper.instance.updateStation(station);
+                            Navigator.pop(context);
+                            _showPortManagementDialog();
+                          }
+                              : null,
+                        ),
+                        Text(
+                          '${station.availablePorts}',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle, color: Colors.green),
+                          onPressed: station.availablePorts < station.totalPorts
+                              ? () {
+                            setState(() {
+                              station.availablePorts++;
+                            });
+                            DatabaseHelper.instance.updateStation(station);
+                            Navigator.pop(context);
+                            _showPortManagementDialog();
+                          }
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showExportDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2C2C2C),
+        title: const Text('Export Data', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildExportOption('Export Bookings', Icons.book_online, () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Bookings export coming soon!')),
+              );
+            }),
+            const SizedBox(height: 12),
+            _buildExportOption('Export Transactions', Icons.receipt_long, () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Transactions export coming soon!')),
+              );
+            }),
+            const SizedBox(height: 12),
+            _buildExportOption('Export Users', Icons.people, () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Users export coming soon!')),
+              );
+            }),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExportOption(String title, IconData icon, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white),
+            const SizedBox(width: 12),
+            Text(title, style: const TextStyle(color: Colors.white)),
+            const Spacer(),
+            const Icon(Icons.download, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }
@@ -4558,48 +7177,103 @@ class _StationInspectorSheet extends StatefulWidget {
 
 class _StationInspectorSheetState extends State<_StationInspectorSheet> {
 
-  // --- NEW: RESOLVE ISSUE DIALOG ---
-  void _resolveIssue(ReportedIssue issue) {
-    // Attempt to find the user who reported the issue from our mock list
-    UserProfile? reporter = mockUsers.firstWhereOrNull((u) => u.name == issue.reportedBy);
+  List<ReportedIssue> _stationIssues = [];
 
-    // Check if the current user is the reporter (for the 'Manipal User' default case)
-    if (reporter == null && currentUser.name == issue.reportedBy && !currentUser.isAdmin) {
-      reporter = currentUser;
+  @override
+  void initState() {
+    super.initState();
+    _loadStationIssues();
+  }
+
+  Future<void> _loadStationIssues() async {
+    final issues = await DatabaseHelper.instance.getIssuesForStation(widget.station.name);
+    if (mounted) {
+      setState(() {
+        _stationIssues = issues;
+      });
     }
+  }
 
-    showDialog(
+  void _showIssueActions(ReportedIssue issue) {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: Text("Resolve Issue: ${issue.issueType}", style: const TextStyle(color: Colors.white)),
-        content: Text("Mark this issue as Resolved and notify the user '${issue.reportedBy}'?", style: const TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-          ElevatedButton(
-              onPressed: () {
-                // 1. Update mock issue status (simple list removal for simplicity)
-                mockIssues.removeWhere((i) => i.id == issue.id);
+      backgroundColor: const Color(0xFF2C2C2C),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Manage Issue', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('${issue.issueType} - ${issue.stationName}', style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(issue.statusIcon, color: issue.statusColor, size: 16),
+                const SizedBox(width: 8),
+                Text('Current Status: ${issue.status}', style: TextStyle(color: issue.statusColor, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 24),
 
-                // 2. Dispatch Resolution Notification
-                if (reporter != null) {
-                  reporter.notifications.insert(0, AppNotification(
-                    title: 'Issue Resolved! ✅',
-                    body: "The problem you reported at ${issue.stationName} (${issue.issueType}) has been resolved by MAHE Admin.",
-                    time: DateTime.now(),
-                  ));
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Resolved issue. Notification sent to ${reporter.name}.')));
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resolved issue. User not found to notify.')));
-                }
+            // Status Change Buttons
+            if (issue.status == 'Pending') ...[
+              _buildStatusButton('Mark In Progress', Icons.engineering, Colors.blue, () async {
+                await DatabaseHelper.instance.updateIssueStatus(issue.id, 'In Progress');
+                _loadStationIssues();
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Issue marked as In Progress')));
+              }),
+              const SizedBox(height: 12),
+            ],
 
-                widget.onUpdate(); // Refresh parent list
-                Navigator.pop(context); // Close dialog
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-              child: const Text("Mark Resolved")
-          ),
-        ],
+            if (issue.status == 'Pending' || issue.status == 'In Progress') ...[
+              _buildStatusButton('Mark Resolved', Icons.check_circle, Colors.green, () async {
+                await DatabaseHelper.instance.updateIssueStatus(issue.id, 'Resolved');
+                _loadStationIssues();
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Issue resolved!')));
+              }),
+              const SizedBox(height: 12),
+            ],
+
+            _buildStatusButton('Delete Issue', Icons.delete, Colors.red, () async {
+              await DatabaseHelper.instance.deleteIssue(issue.id);
+              _loadStationIssues();
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Issue deleted')));
+            }),
+
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusButton(String label, IconData icon, Color color, VoidCallback onTap) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon),
+        label: Text(label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+        ),
       ),
     );
   }
@@ -4680,8 +7354,11 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
                         connectorType: selectedConnector,
                       );
                     }
+                    // Save to SQL
+                    DatabaseHelper.instance.updateStation(mockStations[currentStationIndex]);
                     widget.onUpdate(); // Refresh the Admin screen list/map
                     Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Updated!")));
                   },
                   child: const Text("Save"),
                 )
@@ -4703,6 +7380,7 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
           ElevatedButton(
             onPressed: () {
               mockStations.removeWhere((s) => s.id == widget.station.id);
+              DatabaseHelper.instance.deleteStation(widget.station.id);
               widget.onUpdate(); // Refresh parent list
               Navigator.pop(context); // Close dialog
               Navigator.pop(context); // Close inspector sheet
@@ -4720,7 +7398,7 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
   Widget build(BuildContext context) {
     // Safely retrieve the current state of the station from the global list
     Station currentStation = mockStations.firstWhereOrNull((s) => s.id == widget.station.id) ?? widget.station;
-    List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == currentStation.name).toList();
+    List<ReportedIssue> stationIssues = _stationIssues;
     bool hasIssues = stationIssues.isNotEmpty;
 
     return Container(
@@ -4749,6 +7427,26 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
 
           // Action Buttons
           const SizedBox(height: 16),
+          // Analytics Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(
+                  builder: (context) => AdminStationAnalyticsScreen(station: widget.station),
+                ));
+              },
+              icon: const Icon(Icons.analytics, size: 18),
+              label: const Text("View Analytics"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -4804,14 +7502,35 @@ class _StationInspectorSheetState extends State<_StationInspectorSheet> {
               itemCount: stationIssues.length,
               itemBuilder: (context, index) {
                 final issue = stationIssues[index];
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.warning_amber, color: Colors.redAccent),
-                  title: Text(issue.issueType, style: const TextStyle(color: Colors.white)),
-                  subtitle: Text("${issue.reportedBy} • 2h ago", style: const TextStyle(color: Colors.grey)),
-                  trailing: TextButton(
-                    onPressed: () => _resolveIssue(issue),
-                    child: const Text("Resolve", style: TextStyle(color: Colors.greenAccent)),
+                return Card(
+                  color: const Color(0xFF2C2C2C),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: Icon(issue.statusIcon, color: issue.statusColor),
+                    title: Text(issue.issueType, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Reported by: ${issue.reportedBy}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: issue.statusColor.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            issue.status.toUpperCase(),
+                            style: TextStyle(color: issue.statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.more_vert, color: Colors.grey),
+                      onPressed: () => _showIssueActions(issue),
+                    ),
+                    onTap: () => _showIssueActions(issue),
                   ),
                 );
               },
@@ -4936,6 +7655,26 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
 
             // Action Buttons
             if (!isAdmin) ...[
+              // View Full Details Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(context, MaterialPageRoute(
+                      builder: (context) => AdminUserDetailScreen(user: user),
+                    ));
+                  },
+                  icon: const Icon(Icons.visibility),
+                  label: const Text('View Full Details'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00796B),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -5385,672 +8124,688 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
   }
 }
 
-// --- 2. ADMIN HOME (List View + Detailed Add Button) ---
-class AdminHomeScreen extends StatefulWidget {
-  const AdminHomeScreen({super.key});
+// --- ADMIN: USER DETAIL VIEW ---
+class AdminUserDetailScreen extends StatefulWidget {
+  final Map<String, dynamic> user;
+  const AdminUserDetailScreen({super.key, required this.user});
 
   @override
-  State<AdminHomeScreen> createState() => _AdminHomeScreenState();
+  State<AdminUserDetailScreen> createState() => _AdminUserDetailScreenState();
 }
 
-class _AdminHomeScreenState extends State<AdminHomeScreen> {
+class _AdminUserDetailScreenState extends State<AdminUserDetailScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  List<Booking> _bookings = [];
+  List<WalletTransaction> _transactions = [];
+  List<Vehicle> _vehicles = [];
+  List<AppNotification> _notifications = [];
+  bool _isLoading = true;
 
-  void _openStationInspector(Station s) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _StationInspectorSheet(station: s, onUpdate: () => setState(() {})),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+    _loadUserData();
   }
 
-  // --- DETAILED ADD DIALOG FOR HOME ---
-  void _addNewStation() {
-    final nameController = TextEditingController();
-    final locController = TextEditingController();
-    final priceController = TextEditingController();
-    final spotsController = TextEditingController();
-    String selectedConnector = 'CCS Type 2'; // Default connector
-    bool isFast = false;
-    bool isSolar = false;
+  Future<void> _loadUserData() async {
+    final userId = widget.user['id'] as String;
+    final bookings = await DatabaseHelper.instance.getBookingsForUserAdmin(userId);
+    final transactions = await DatabaseHelper.instance.getTransactionsForUserAdmin(userId);
+    final vehicles = await DatabaseHelper.instance.getVehiclesForUserAdmin(userId);
+    final notifications = await DatabaseHelper.instance.getNotificationsForUserAdmin(userId);
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF2C2C2C),
-              title: const Text("Add New Charger", style: TextStyle(color: Colors.white)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
-                    const SizedBox(height: 10),
-                    TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
-                    const SizedBox(height: 10),
-                    // Connector Type Dropdown (NEW)
-                    DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
-                      value: selectedConnector,
-                      dropdownColor: const Color(0xFF2C2C2C),
-                      style: const TextStyle(color: Colors.white),
-                      items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
-                          .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (val) => setDialogState(() => selectedConnector = val!),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price (₹)", labelStyle: TextStyle(color: Colors.grey)))),
-                        const SizedBox(width: 10),
-                        Expanded(child: TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Parking Spots", labelStyle: TextStyle(color: Colors.grey)))),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    SwitchListTile(title: const Text("Fast Charging", style: TextStyle(color: Colors.white)), value: isFast, onChanged: (val) => setDialogState(() => isFast = val), activeColor: Colors.redAccent),
-                    SwitchListTile(title: const Text("Solar Powered", style: TextStyle(color: Colors.white)), value: isSolar, onChanged: (val) => setDialogState(() => isSolar = val), activeColor: Colors.greenAccent),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                    onPressed: () {
-                      if (nameController.text.isNotEmpty) {
-                        setState(() {
-                          mockStations.add(Station(
-                            id: 'NEW_${DateTime.now().millisecondsSinceEpoch}',
-                            name: nameController.text,
-                            location: locController.text.isEmpty ? "Campus Area" : locController.text,
-                            distance: 0.5,
-                            isFastCharger: isFast,
-                            totalPorts: 4, availablePorts: 4, isSharedPower: false,
-                            isSolarPowered: isSolar,
-                            mapX: 0.5, mapY: 0.5, // Default center
-                            parkingSpaces: int.tryParse(spotsController.text) ?? 5,
-                            availableParking: int.tryParse(spotsController.text) ?? 5,
-                            pricePerUnit: double.tryParse(priceController.text) ?? 8.0,
-                            connectorType: selectedConnector, // <--- FIXED: Passed connectorType
-                          ));
-                        });
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Added!")));
-                      }
-                    },
-                    child: const Text("Add")
-                ),
-              ],
-            );
-          }
-      ),
-    );
+    if (mounted) {
+      setState(() {
+        _bookings = bookings;
+        _transactions = transactions;
+        _vehicles = vehicles;
+        _notifications = notifications;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    int totalIssues = mockIssues.length;
+    final userName = widget.user['name'] as String? ?? 'User';
+    final userEmail = widget.user['email'] as String? ?? '';
+    final userType = widget.user['userType'] as String? ?? 'student';
+    final walletBalance = (widget.user['walletBalance'] as num? ?? 0).toDouble();
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(userName),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white54,
+          tabs: const [
+            Tab(icon: Icon(Icons.book_online), text: 'Bookings'),
+            Tab(icon: Icon(Icons.receipt_long), text: 'Transactions'),
+            Tab(icon: Icon(Icons.directions_car), text: 'Vehicles'),
+            Tab(icon: Icon(Icons.notifications), text: 'Alerts'),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          // User Info Header
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF1E1E1E),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: const Color(0xFF00796B).withOpacity(0.2),
+                  child: Text(userName[0].toUpperCase(), style: const TextStyle(color: Color(0xFF00796B), fontSize: 24, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(userName, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      Text(userEmail, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.blue.withOpacity(0.2), borderRadius: BorderRadius.circular(4)),
+                            child: Text(userType.toUpperCase(), style: const TextStyle(color: Colors.blue, fontSize: 10)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text('₹${walletBalance.toStringAsFixed(2)}', style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Tab Content
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildBookingsTab(),
+                _buildTransactionsTab(),
+                _buildVehiclesTab(),
+                _buildNotificationsTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingsTab() {
+    if (_bookings.isEmpty) {
+      return const Center(child: Text('No bookings yet', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _bookings.length,
+      itemBuilder: (context, index) {
+        final b = _bookings[index];
+        Color statusColor = b.status == 'completed' ? Colors.green : (b.status == 'cancelled' ? Colors.red : Colors.orange);
+        return Card(
+          color: const Color(0xFF2C2C2C),
+          child: ListTile(
+            leading: Icon(Icons.ev_station, color: statusColor),
+            title: Text(b.stationName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: Text('${b.bookingTime.day}/${b.bookingTime.month}/${b.bookingTime.year} • ₹${b.cost.toStringAsFixed(0)}', style: const TextStyle(color: Colors.grey)),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: statusColor.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+              child: Text(b.status.toUpperCase(), style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTransactionsTab() {
+    if (_transactions.isEmpty) {
+      return const Center(child: Text('No transactions yet', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _transactions.length,
+      itemBuilder: (context, index) {
+        final t = _transactions[index];
+        return Card(
+          color: const Color(0xFF2C2C2C),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: t.isCredit ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+              child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.red),
+            ),
+            title: Text(t.title, style: const TextStyle(color: Colors.white)),
+            subtitle: Text('${t.date.day}/${t.date.month}/${t.date.year}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            trailing: Text('${t.isCredit ? '+' : '-'}₹${t.amount.toStringAsFixed(0)}', style: TextStyle(color: t.isCredit ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVehiclesTab() {
+    if (_vehicles.isEmpty) {
+      return const Center(child: Text('No vehicles registered', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _vehicles.length,
+      itemBuilder: (context, index) {
+        final v = _vehicles[index];
+        return Card(
+          color: const Color(0xFF2C2C2C),
+          child: ListTile(
+            leading: const Icon(Icons.directions_car, color: Colors.white),
+            title: Text('${v.make} ${v.model}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: Text('${v.licensePlate} • ${v.connectorType}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            trailing: v.isPrimary
+                ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: Colors.blue.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+              child: const Text('PRIMARY', style: TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold)),
+            )
+                : null,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNotificationsTab() {
+    if (_notifications.isEmpty) {
+      return const Center(child: Text('No notifications', style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _notifications.length,
+      itemBuilder: (context, index) {
+        final n = _notifications[index];
+        return Card(
+          color: const Color(0xFF2C2C2C),
+          child: ListTile(
+            leading: Icon(Icons.notifications, color: n.read ? Colors.grey : Colors.orange),
+            title: Text(n.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            subtitle: Text(n.body, style: const TextStyle(color: Colors.grey, fontSize: 12), maxLines: 2, overflow: TextOverflow.ellipsis),
+            trailing: Text('${n.time.day}/${n.time.month}', style: const TextStyle(color: Colors.grey, fontSize: 10)),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// --- ADMIN: ALL BOOKINGS SCREEN ---
+class AdminAllBookingsScreen extends StatefulWidget {
+  const AdminAllBookingsScreen({super.key});
+
+  @override
+  State<AdminAllBookingsScreen> createState() => _AdminAllBookingsScreenState();
+}
+
+class _AdminAllBookingsScreenState extends State<AdminAllBookingsScreen> {
+  List<Map<String, dynamic>> _bookings = [];
+  bool _isLoading = true;
+  String _filterStatus = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBookings();
+  }
+
+  Future<void> _loadBookings() async {
+    final bookings = await DatabaseHelper.instance.getAllBookingsWithUserInfo();
+    if (mounted) {
+      setState(() {
+        _bookings = bookings;
+        _isLoading = false;
+      });
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredBookings {
+    if (_filterStatus == 'all') return _bookings;
+    return _bookings.where((b) => b['status'] == _filterStatus).toList();
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'completed': return Colors.green;
+      case 'cancelled': return Colors.red;
+      case 'active': return Colors.orange;
+      case 'reserved': return Colors.blue;
+      default: return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Stats
+    int totalBookings = _bookings.length;
+    int activeBookings = _bookings.where((b) => b['status'] == 'active').length;
+    int completedBookings = _bookings.where((b) => b['status'] == 'completed').length;
+    int cancelledBookings = _bookings.where((b) => b['status'] == 'cancelled').length;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF121212),
+      appBar: AppBar(
+        title: const Text('All Bookings'),
         backgroundColor: Colors.red.shade900,
         foregroundColor: Colors.white,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addNewStation,
-        backgroundColor: Colors.redAccent,
-        icon: const Icon(Icons.add),
-        label: const Text("Add Charger"),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
         children: [
-          // Stats
-          Row(
-            children: [
-              Expanded(child: _AdminStatCard(icon: Icons.ev_station, value: '${mockStations.length}', label: 'Active Chargers', color: Colors.blue)),
-              const SizedBox(width: 12),
-              Expanded(child: _AdminStatCard(icon: Icons.warning_amber_rounded, value: '$totalIssues', label: 'Issues Reported', color: totalIssues > 0 ? Colors.red : Colors.orange)),
-            ],
+          // Stats Row
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: const Color(0xFF1E1E1E),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildStatItem('Total', totalBookings, Colors.white),
+                _buildStatItem('Active', activeBookings, Colors.orange),
+                _buildStatItem('Done', completedBookings, Colors.green),
+                _buildStatItem('Cancelled', cancelledBookings, Colors.red),
+              ],
+            ),
           ),
-          const SizedBox(height: 24),
-          const Text("Live Station List", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-          const SizedBox(height: 12),
-          // List
-          ...mockStations.map((s) {
-            List<ReportedIssue> stationIssues = mockIssues.where((i) => i.stationName == s.name).toList();
-            bool hasIssues = stationIssues.isNotEmpty;
-            return Card(
-              color: const Color(0xFF2C2C2C),
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ListTile(
-                leading: Icon(Icons.ev_station, color: s.availablePorts > 0 ? Colors.greenAccent : Colors.redAccent),
-                title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                subtitle: Row(
-                  children: [
-                    Text("${s.location} • ", style: const TextStyle(color: Colors.white70)),
-                    Text(hasIssues ? "${stationIssues.length} Issues" : "0 Issues", style: TextStyle(color: hasIssues ? Colors.redAccent : Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
-                  ],
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-                onTap: () => _openStationInspector(s),
+
+          // Filter Chips
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildFilterChip('all', 'All'),
+                  _buildFilterChip('active', 'Active'),
+                  _buildFilterChip('reserved', 'Reserved'),
+                  _buildFilterChip('completed', 'Completed'),
+                  _buildFilterChip('cancelled', 'Cancelled'),
+                ],
               ),
-            );
-          }),
-          const SizedBox(height: 80),
-        ],
-      ),
-    );
-  }
-}
-
-class _AdminStatCard extends StatelessWidget {
-  final IconData icon; final String value; final String label; final Color color;
-  const _AdminStatCard({required this.icon, required this.value, required this.label, required this.color});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withValues(alpha: 0.3))),
-      child: Column(children: [Icon(icon, color: color, size: 30), const SizedBox(height: 8), Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)), Text(label, style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 12))]),
-    );
-  }
-}
-
-// --- 3. ADMIN MAP EDITING SCREEN (Interactive Map with Editing Functions) ---
-class AdminMapScreen extends StatefulWidget {
-  const AdminMapScreen({super.key});
-  @override
-  State<AdminMapScreen> createState() => _AdminMapScreenState();
-}
-
-class _AdminMapScreenState extends State<AdminMapScreen> {
-  final LatLng _manipalCenter = const LatLng(13.350, 74.790);
-  final double _initialZoom = 14.0;
-  final MapController _mapController = MapController();
-
-  // State to handle which station is being edited
-  Station? _selectedStationForEdit;
-
-  // --- ADMIN: OPEN EDITOR SHEET (Uses existing logic) ---
-  void _openStationInspector(Station s) {
-    _selectedStationForEdit = s;
-    // We use then((_) => ...) to ensure the map re-renders markers immediately after the inspector sheet closes.
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _StationInspectorSheet(station: s, onUpdate: () => setState(() {})),
-    ).then((_) => setState(() => _selectedStationForEdit = null));
-  }
-
-  // --- ADMIN: ADD STATION LOGIC (New) ---
-  // This function is now the correct tap handler for FlutterMap
-  void _handleMapTap(TapPosition tapPosition, LatLng latLng) {
-    // We pass the real LatLng coordinates directly to the Add Dialog
-    _showAddDialogAtLocation(latLng.longitude, latLng.latitude);
-  }
-
-  // Helper to create map markers with tap handler
-  List<Marker> _buildStationMarkers(BuildContext context) {
-    return mockStations.map((station) {
-      // Use real LatLng coordinates saved in mockStations (mapY = Lat, mapX = Lon)
-      final LatLng markerPoint = LatLng(station.mapY, station.mapX);
-      bool isSelected = _selectedStationForEdit?.id == station.id;
-
-      return Marker(
-        point: markerPoint,
-        width: 100,
-        height: 80,
-        child: GestureDetector(
-          onTap: () => _openStationInspector(station),
-          child: Column(
-            children: [
-              Icon(
-                  Icons.location_on,
-                  color: isSelected ? Colors.cyanAccent : Colors.redAccent,
-                  size: isSelected ? 45 : 40
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(4),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 4)]
-                ),
-                child: Text(
-                    station.name,
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black)
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      );
-    }).toList();
-  }
 
-  // --- ADMIN: SHOW ADD DIALOG AT REAL LatLng ---
-  void _showAddDialogAtLocation(double lon, double lat) {
-    final nameController = TextEditingController();
-    final locController = TextEditingController(text: "Tapped Location"); // Default text for user convenience
-    final priceController = TextEditingController();
-    final spotsController = TextEditingController();
-    String selectedConnector = 'CCS Type 2';
-    bool isFast = false;
-    bool isSolar = false;
+          // Bookings List
+          Expanded(
+            child: _filteredBookings.isEmpty
+                ? const Center(child: Text('No bookings found', style: TextStyle(color: Colors.grey)))
+                : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _filteredBookings.length,
+              itemBuilder: (context, index) {
+                final b = _filteredBookings[index];
+                final status = b['status'] as String? ?? 'unknown';
+                final statusColor = _getStatusColor(status);
+                final bookingTime = DateTime.parse(b['bookingTime'] as String);
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF2C2C2C),
-              title: const Text("Deploy New Charger", style: TextStyle(color: Colors.white)),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text("Coordinates: Lat: ${lat.toStringAsFixed(4)}, Lon: ${lon.toStringAsFixed(4)}", style: const TextStyle(color: Colors.white54, fontSize: 10)),
-                    const SizedBox(height: 10),
-                    TextField(controller: nameController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Station Name", labelStyle: TextStyle(color: Colors.grey))),
-                    const SizedBox(height: 10),
-                    TextField(controller: locController, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Location Name", labelStyle: TextStyle(color: Colors.grey))),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      decoration: const InputDecoration(labelText: 'Connector Type', labelStyle: TextStyle(color: Colors.grey)),
-                      value: selectedConnector,
-                      dropdownColor: const Color(0xFF2C2C2C),
-                      style: const TextStyle(color: Colors.white),
-                      items: const ['CCS Type 2', 'Type 2 AC', 'CHAdeMO', 'GB/T']
-                          .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (val) => setDialogState(() => selectedConnector = val!),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
+                return Card(
+                  color: const Color(0xFF2C2C2C),
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: TextField(controller: priceController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Price (₹)", labelStyle: TextStyle(color: Colors.grey)))),
-                        const SizedBox(width: 10),
-                        Expanded(child: TextField(controller: spotsController, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Spots", labelStyle: TextStyle(color: Colors.grey)))),
+                        // Station & Status Row
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                b['stationName'] as String? ?? 'Unknown Station',
+                                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: statusColor.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                status.toUpperCase(),
+                                style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+
+                        // User Info
+                        Row(
+                          children: [
+                            const Icon(Icons.person, color: Colors.grey, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              b['userName'] as String? ?? 'Unknown User',
+                              style: const TextStyle(color: Colors.white70, fontSize: 13),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                b['userEmail'] as String? ?? '',
+                                style: const TextStyle(color: Colors.grey, fontSize: 11),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Date & Cost Row
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.calendar_today, color: Colors.grey, size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${bookingTime.day}/${bookingTime.month}/${bookingTime.year} ${bookingTime.hour}:${bookingTime.minute.toString().padLeft(2, '0')}',
+                                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '₹${(b['cost'] as num? ?? 0).toStringAsFixed(0)}',
+                              style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    SwitchListTile(title: const Text("Fast Charging", style: TextStyle(color: Colors.white)), value: isFast, onChanged: (val) => setDialogState(() => isFast = val), activeColor: Colors.redAccent),
-                    SwitchListTile(title: const Text("Solar Powered", style: TextStyle(color: Colors.white)), value: isSolar, onChanged: (val) => setDialogState(() => isSolar = val), activeColor: Colors.greenAccent),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                  onPressed: () {
-                    if (nameController.text.isNotEmpty) {
-                      setState(() {
-                        mockStations.add(Station(
-                          id: 'NEW_${DateTime.now().millisecondsSinceEpoch}',
-                          name: nameController.text,
-                          location: locController.text,
-                          distance: 0.0,
-                          isFastCharger: isFast,
-                          totalPorts: 4, availablePorts: 4, isSharedPower: false,
-                          isSolarPowered: isSolar,
-                          mapX: lon, mapY: lat, // <--- SAVES CLICKED LatLng (Lon=X, Lat=Y)
-                          parkingSpaces: int.tryParse(spotsController.text) ?? 5,
-                          availableParking: int.tryParse(spotsController.text) ?? 5,
-                          pricePerUnit: double.tryParse(priceController.text) ?? 9.0,
-                          connectorType: selectedConnector,
-                        ));
-                      });
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Station Deployed!")));
-                    }
-                  },
-                  child: const Text("Deploy"),
-                )
-              ],
-            );
-          }
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(title: const Text('Admin Map Editor'), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
-
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // Action for the extended button can be a hint or to re-center
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tap on the map to deploy a new charger!')));
-        },
-        backgroundColor: Colors.redAccent,
-        icon: const Icon(Icons.add_location),
-        label: const Text("Tap to Add Charger"),
-      ),
-
-      body: Stack(
-        children: [
-          // --- 1. FlutterMap Widget (REAL MAP) ---
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _manipalCenter,
-              initialZoom: _initialZoom,
-              minZoom: 12.0,
-              maxZoom: 18.0,
-              interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-              ),
-              onTap: _handleMapTap, // <--- CORRECT TAP HANDLER
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-                userAgentPackageName: 'com.mahe.evcharge.app',
-              ),
-              MarkerLayer(
-                markers: _buildStationMarkers(context),
-              ),
-            ],
-          ),
-
-          // --- 2. Floating Search Bar (Simulated) ---
-          Positioned(
-            top: 50,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 4,
-              color: const Color(0xFF1E1E1E),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                child: Row(
-                  children: const [
-                    Icon(Icons.search, color: Colors.grey),
-                    SizedBox(width: 8),
-                    Text("Admin Search (Feature Disabled)", style: TextStyle(color: Colors.grey)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // --- 3. Zoom Controls (Admin has same controls) ---
-          Positioned(
-            bottom: 20,
-            right: 20,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.end,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // Zoom In Button
-                FloatingActionButton(
-                  heroTag: "btn_admin_zoom_in",
-                  mini: true,
-                  backgroundColor: Colors.white,
-                  child: const Icon(Icons.add, color: Colors.black87),
-                  onPressed: () {
-                    final currentZoom = _mapController.camera.zoom;
-                    _mapController.move(_mapController.camera.center, currentZoom + 1);
-                  },
-                ),
-                const SizedBox(height: 8),
-
-                // Zoom Out Button
-                FloatingActionButton(
-                  heroTag: "btn_admin_zoom_out",
-                  mini: true,
-                  backgroundColor: Colors.white,
-                  child: const Icon(Icons.remove, color: Colors.black87),
-                  onPressed: () {
-                    final currentZoom = _mapController.camera.zoom;
-                    _mapController.move(_mapController.camera.center, currentZoom - 1);
-                  },
-                ),
-              ],
+                  ),
+                );
+              },
             ),
           ),
         ],
       ),
     );
   }
-}
 
-// --- 4. ADMIN USERS SCREEN ---
-class AdminUsersScreen extends StatelessWidget {
-  const AdminUsersScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(title: const Text("User Management"), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildUserTile("Rahul Sharma", "Student", "Active"),
-          _buildUserTile("Prof. Anjali", "Staff", "Active"),
-          _buildUserTile("Guest_992", "Guest", "Inactive"),
-          _buildUserTile("Vikram Singh", "Student", "Suspended", isRed: true),
-        ],
+  Widget _buildStatItem(String label, int value, Color color) {
+    return Column(
+      children: [
+        Text('$value', style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip(String value, String label) {
+    final isSelected = _filterStatus == value;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: Text(label),
+        selected: isSelected,
+        onSelected: (selected) => setState(() => _filterStatus = value),
+        selectedColor: Colors.redAccent,
+        checkmarkColor: Colors.white,
+        labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.grey),
+        backgroundColor: const Color(0xFF2C2C2C),
       ),
     );
   }
-  Widget _buildUserTile(String name, String type, String status, {bool isRed = false}) {
-    return Card(color: const Color(0xFF2C2C2C), child: ListTile(leading: CircleAvatar(child: Text(name[0])), title: Text(name, style: const TextStyle(color: Colors.white)), subtitle: Text("$type • $status", style: const TextStyle(color: Colors.grey)), trailing: const Icon(Icons.chevron_right, color: Colors.grey)));
-  }
 }
 
-// --- NEW ADMIN NOTIFICATION DISPATCH SCREEN ---
-class AdminNotificationScreen extends StatefulWidget {
-  const AdminNotificationScreen({super.key});
+// --- ADMIN: STATION ANALYTICS SCREEN ---
+class AdminStationAnalyticsScreen extends StatefulWidget {
+  final Station station;
+  const AdminStationAnalyticsScreen({super.key, required this.station});
+
   @override
-  State<AdminNotificationScreen> createState() => _AdminNotificationScreenState();
+  State<AdminStationAnalyticsScreen> createState() => _AdminStationAnalyticsScreenState();
 }
 
-class _AdminNotificationScreenState extends State<AdminNotificationScreen> {
-  final _titleController = TextEditingController();
-  final _bodyController = TextEditingController();
-  String _targetType = 'Global (All Users)';
-  String? _selectedUserId;
+class _AdminStationAnalyticsScreenState extends State<AdminStationAnalyticsScreen> {
+  Map<String, dynamic> _analytics = {};
+  bool _isLoading = true;
 
-  void _sendNotification() {
-    if (_titleController.text.isEmpty || _bodyController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a title and message body.')));
-      return;
-    }
+  @override
+  void initState() {
+    super.initState();
+    _loadAnalytics();
+  }
 
-    // --- Dispatch Logic ---
-    int recipients = 0;
-
-    if (_targetType == 'Global (All Users)') {
-      // Simulate sending to all mock users + the currently logged-in standard user
-      mockUsers.forEach((u) {
-        u.notifications.insert(0, AppNotification(title: _titleController.text, body: _bodyController.text, time: DateTime.now()));
-        recipients++;
+  Future<void> _loadAnalytics() async {
+    final analytics = await DatabaseHelper.instance.getStationAnalytics(
+        widget.station.id,
+        widget.station.name
+    );
+    if (mounted) {
+      setState(() {
+        _analytics = analytics;
+        _isLoading = false;
       });
-      if (!currentUser.isAdmin) {
-        currentUser.notifications.insert(0, AppNotification(title: _titleController.text, body: _bodyController.text, time: DateTime.now()));
-        recipients++;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Global alert sent to $recipients users.')));
-
-    } else if (_targetType == 'Specific User' && _selectedUserId != null) {
-      // Find the target user (simplified lookup)
-      UserProfile? targetUser = mockUsers.firstWhereOrNull((u) => u.id == _selectedUserId);
-
-      // We must also check if the target is the logged-in user!
-      if (targetUser == null && currentUser.id == _selectedUserId) {
-        targetUser = currentUser;
-      }
-
-      if (targetUser != null) {
-        targetUser.notifications.insert(0, AppNotification(title: _titleController.text, body: _bodyController.text, time: DateTime.now()));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Alert sent to ${targetUser.name}.')));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: Target user not found.')));
-      }
     }
-    // --- End Dispatch Logic ---
-
-    _titleController.clear();
-    _bodyController.clear();
-    setState(() {
-      _targetType = 'Global (All Users)';
-      _selectedUserId = null;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(title: const Text("Send Campus Alert"), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
-      body: SingleChildScrollView(
+      appBar: AppBar(
+        title: Text('${widget.station.name} Analytics'),
+        backgroundColor: Colors.red.shade900,
+        foregroundColor: Colors.white,
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Alert Dispatch", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 20),
-
-            // Target Selector
-            DropdownButtonFormField<String>(
-              value: _targetType,
-              dropdownColor: const Color(0xFF2C2C2C),
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: "Target Audience", labelStyle: TextStyle(color: Colors.grey)),
-              items: const ['Global (All Users)', 'Specific User']
-                  .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-              onChanged: (val) => setState(() {
-                _targetType = val!;
-                _selectedUserId = null;
-              }),
-            ),
-            const SizedBox(height: 16),
-
-            // Specific User Selector (Conditional)
-            if (_targetType == 'Specific User') ...[
-              DropdownButtonFormField<String>(
-                value: _selectedUserId,
-                dropdownColor: const Color(0xFF2C2C2C),
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(labelText: "Select User", labelStyle: TextStyle(color: Colors.grey)),
-                items: mockUsers.map((u) => DropdownMenuItem(value: u.id, child: Text('${u.name} (${u.userType})'))).toList(),
-                onChanged: (val) => setState(() => _selectedUserId = val),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            TextField(
-              controller: _titleController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: "Notification Title (e.g. Maintenance)", labelStyle: TextStyle(color: Colors.grey)),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _bodyController,
-              maxLines: 4,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: "Message Body (e.g. KMC charger down 10am-1pm)", labelStyle: TextStyle(color: Colors.grey)),
-            ),
-            const SizedBox(height: 30),
-
-            SizedBox(
+            // Station Info Card
+            Container(
               width: double.infinity,
-              height: 50,
-              child: ElevatedButton.icon(
-                onPressed: _sendNotification,
-                icon: const Icon(Icons.send),
-                label: const Text("Send Alert Now", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [Colors.red.shade900, Colors.red.shade700]),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        widget.station.isFastCharger ? Icons.flash_on : Icons.ev_station,
+                        color: Colors.white,
+                        size: 32,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(widget.station.name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                            Text(widget.station.location, style: const TextStyle(color: Colors.white70)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      _buildInfoChip(widget.station.connectorType, Icons.power),
+                      const SizedBox(width: 8),
+                      _buildInfoChip(widget.station.isFastCharger ? 'Fast' : 'Standard', Icons.speed),
+                      const SizedBox(width: 8),
+                      _buildInfoChip('₹${widget.station.pricePerUnit}/kWh', Icons.currency_rupee),
+                    ],
+                  ),
+                ],
               ),
             ),
+
+            const SizedBox(height: 24),
+
+            // Stats Grid
+            const Text('Performance Overview', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(child: _buildStatCard('Total Bookings', '${_analytics['totalBookings'] ?? 0}', Icons.book_online, Colors.blue)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildStatCard('Completed', '${_analytics['completedBookings'] ?? 0}', Icons.check_circle, Colors.green)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildStatCard('Revenue', '₹${(_analytics['totalRevenue'] ?? 0.0).toStringAsFixed(0)}', Icons.currency_rupee, Colors.amber)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildStatCard('Avg Cost', '₹${(_analytics['avgCost'] ?? 0.0).toStringAsFixed(0)}', Icons.analytics, Colors.purple)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _buildStatCard('Total Issues', '${_analytics['totalIssues'] ?? 0}', Icons.report_problem, Colors.orange)),
+                const SizedBox(width: 12),
+                Expanded(child: _buildStatCard('Pending', '${_analytics['pendingIssues'] ?? 0}', Icons.hourglass_empty, Colors.red)),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Recent Bookings
+            const Text('Recent Bookings', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+
+            _buildRecentBookingsList(),
           ],
         ),
       ),
     );
   }
-}
-// --- 5. ADMIN FINANCE (Total Stats + Transaction Log) ---
-class AdminTransactionMonitor extends StatelessWidget {
-  const AdminTransactionMonitor({super.key});
-  @override
-  Widget build(BuildContext context) {
-    double totalRevenue = allGlobalTransactions.where((t) => !t.isCredit).fold(0, (sum, t) => sum + t.amount);
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(title: const Text('Financial Overview'), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
-      body: Column(
+
+  Widget _buildInfoChip(String label, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: double.infinity, margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.red.shade900, Colors.black]), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3))),
-            child: Column(children: [
-              const Text("Total Revenue Generated", style: TextStyle(color: Colors.white70)),
-              Text("₹${totalRevenue.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text("From all charging sessions", style: TextStyle(color: Colors.white24, fontSize: 10)),
-            ]),
-          ),
-          Expanded(child: ListView.separated(itemCount: allGlobalTransactions.length, separatorBuilder: (_, __) => const Divider(color: Colors.white10), itemBuilder: (context, index) {
-            final t = allGlobalTransactions[index];
-            return ListTile(leading: CircleAvatar(backgroundColor: const Color(0xFF2C2C2C), child: Icon(t.isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: t.isCredit ? Colors.green : Colors.redAccent)), title: Text(t.title, style: const TextStyle(color: Colors.white)), subtitle: Text(t.id, style: const TextStyle(color: Colors.grey)), trailing: Text('₹${t.amount}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)));
-          })),
+          Icon(icon, color: Colors.white, size: 14),
+          const SizedBox(width: 4),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
         ],
       ),
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2C),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(height: 12),
+          Text(value, style: TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.bold)),
+          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecentBookingsList() {
+    final recentBookings = _analytics['recentBookings'] as List<Map<String, dynamic>>? ?? [];
+
+    if (recentBookings.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2C),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(
+          child: Text('No bookings yet', style: TextStyle(color: Colors.grey)),
+        ),
+      );
+    }
+
+    return Column(
+      children: recentBookings.map((booking) {
+        final status = booking['status'] as String? ?? 'unknown';
+        final statusColor = status == 'completed' ? Colors.green : (status == 'cancelled' ? Colors.red : Colors.orange);
+        final bookingTime = DateTime.parse(booking['bookingTime'] as String);
+
+        return Card(
+          color: const Color(0xFF2C2C2C),
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: statusColor.withOpacity(0.2),
+              child: Icon(Icons.person, color: statusColor, size: 20),
+            ),
+            title: Text(booking['userName'] as String? ?? 'Unknown', style: const TextStyle(color: Colors.white)),
+            subtitle: Text(
+              '${bookingTime.day}/${bookingTime.month}/${bookingTime.year} • ₹${(booking['cost'] as num? ?? 0).toStringAsFixed(0)}',
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: statusColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                status.toUpperCase(),
+                style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }
 
-// --- 6. ADMIN PROFILE (Bank Settings Only) ---
-class AdminProfileScreen extends StatelessWidget {
-  const AdminProfileScreen({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(title: const Text('Admin Profile'), backgroundColor: Colors.red.shade900, foregroundColor: Colors.white),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const CircleAvatar(radius: 50, backgroundColor: Colors.redAccent, child: Icon(Icons.admin_panel_settings, size: 50, color: Colors.white)),
-          const SizedBox(height: 16),
-          const Center(child: Text("Administrator", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white))),
-          const Center(child: Text("arihant@manipal.edu", style: TextStyle(color: Colors.grey))),
-          const SizedBox(height: 40),
-          Container(
-            decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: const Icon(Icons.people, color: Colors.white),
-              title: const Text('User Management', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('View, edit & delete users', style: TextStyle(color: Colors.grey)),
-              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminUserManagementScreen())),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: const Icon(Icons.account_balance, color: Colors.white),
-              title: const Text('Institution Bank Details', style: TextStyle(color: Colors.white)),
-              subtitle: const Text('Manage MAHE Main Account', style: TextStyle(color: Colors.grey)),
-              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const BankDetailsScreen())),
-            ),
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false), style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)), child: const Text("Logout")),
-        ],
-      ),
-    );
-  }
-}
 // --- NEW: VEHICLE MANAGEMENT SCREEN ---
 class VehicleScreen extends StatefulWidget {
   const VehicleScreen({super.key});
@@ -6090,6 +8845,7 @@ class _VehicleScreenState extends State<VehicleScreen> {
               }
             }
             currentUser.vehicles.add(newVehicle);
+            DatabaseHelper.instance.saveVehicle(newVehicle, currentUser.id);
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('${newVehicle.make} ${newVehicle.model} added!')),
@@ -6132,12 +8888,16 @@ class _VehicleScreenState extends State<VehicleScreen> {
         );
       }
     });
+    for (var v in currentUser.vehicles) {
+      DatabaseHelper.instance.saveVehicle(v, currentUser.id);
+    }
   }
 
   // --- DELETE LOGIC CONFIRMED ---
   void _deleteVehicle(String id) {
     setState(() {
       currentUser.vehicles.removeWhere((v) => v.id == id);
+      DatabaseHelper.instance.deleteVehicle(id);
       // Ensure there is always a primary if list is not empty
       if (currentUser.vehicles.isNotEmpty && currentUser.vehicles.where((v) => v.isPrimary).isEmpty) {
         // Set the first remaining vehicle as primary

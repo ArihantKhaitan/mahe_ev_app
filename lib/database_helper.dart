@@ -18,7 +18,51 @@ class DatabaseHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     print('Database path: $path'); // Debug: shows where DB is stored
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(path, version: 3, onCreate: _createDB, onUpgrade: _upgradeDB);
+  }
+
+  Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        title TEXT,
+        body TEXT,
+        time TEXT,
+        isRead INTEGER DEFAULT 0,
+        FOREIGN KEY (userId) REFERENCES users(id)
+      )
+    ''');
+
+      await db.execute('''
+      CREATE TABLE IF NOT EXISTS reported_issues (
+        id TEXT PRIMARY KEY,
+        stationId TEXT,
+        stationName TEXT,
+        reportedBy TEXT,
+        reportedByUserId TEXT,
+        issueType TEXT,
+        time TEXT,
+        status TEXT DEFAULT 'Pending',
+        FOREIGN KEY (reportedByUserId) REFERENCES users(id)
+      )
+    ''');
+    }
+
+    if (oldVersion < 3) {
+      await db.execute('''
+      CREATE TABLE IF NOT EXISTS sent_notifications (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        body TEXT,
+        targetType TEXT,
+        targetUserId TEXT,
+        targetUserName TEXT,
+        sentAt TEXT
+      )
+    ''');
+    }
   }
 
   Future _createDB(Database db, int version) async {
@@ -99,6 +143,46 @@ class DatabaseHelper {
         cost REAL,
         status TEXT,
         FOREIGN KEY (userId) REFERENCES users(id)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE notifications (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        title TEXT,
+        body TEXT,
+        time TEXT,
+        isRead INTEGER DEFAULT 0,
+        FOREIGN KEY (userId) REFERENCES users(id)
+      )
+    ''');
+
+    // REPORTED ISSUES Table
+    await db.execute('''
+      CREATE TABLE reported_issues (
+        id TEXT PRIMARY KEY,
+        stationId TEXT,
+        stationName TEXT,
+        reportedBy TEXT,
+        reportedByUserId TEXT,
+        issueType TEXT,
+        time TEXT,
+        status TEXT DEFAULT 'Pending',
+        FOREIGN KEY (reportedByUserId) REFERENCES users(id)
+      )
+    ''');
+
+    // SENT NOTIFICATIONS (Admin History)
+    await db.execute('''
+      CREATE TABLE sent_notifications (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        body TEXT,
+        targetType TEXT,
+        targetUserId TEXT,
+        targetUserName TEXT,
+        sentAt TEXT
       )
     ''');
 
@@ -194,7 +278,7 @@ class DatabaseHelper {
         vehicles: vehicles,
         transactions: transactions,
         bookings: bookings,
-        notifications: [], // Notifications are in-memory only for now
+        notifications: await getNotificationsForUser(userId),
       );
     } catch (e) {
       print('Login error: $e');
@@ -547,5 +631,361 @@ class DatabaseHelper {
     final db = await instance.database;
     final result = await db.rawQuery('SELECT COUNT(*) as count FROM users WHERE isAdmin = 0');
     return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  // ==========================================
+  // NOTIFICATION OPERATIONS
+  // ==========================================
+
+  Future<void> insertNotification(AppNotification n, String userId) async {
+    final db = await instance.database;
+    await db.insert('notifications', {
+      'id': 'N${DateTime.now().millisecondsSinceEpoch}',
+      'userId': userId,
+      'title': n.title,
+      'body': n.body,
+      'time': n.time.toIso8601String(),
+      'isRead': n.read ? 1 : 0,
+    });
+  }
+
+  Future<List<AppNotification>> getNotificationsForUser(String userId) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'notifications',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'time DESC',
+    );
+    return result.map((j) => AppNotification(
+      title: j['title'] as String,
+      body: j['body'] as String,
+      time: DateTime.parse(j['time'] as String),
+      read: j['isRead'] == 1,
+    )).toList();
+  }
+
+  Future<void> markNotificationRead(String notificationId) async {
+    final db = await instance.database;
+    await db.update(
+      'notifications',
+      {'isRead': 1},
+      where: 'id = ?',
+      whereArgs: [notificationId],
+    );
+  }
+
+  Future<void> markAllNotificationsRead(String userId) async {
+    final db = await instance.database;
+    await db.update(
+      'notifications',
+      {'isRead': 1},
+      where: 'userId = ?',
+      whereArgs: [userId],
+    );
+  }
+
+  // ==========================================
+  // REPORTED ISSUE OPERATIONS
+  // ==========================================
+
+  Future<void> insertIssue(ReportedIssue issue, String userId) async {
+    final db = await instance.database;
+    await db.insert('reported_issues', {
+      'id': issue.id,
+      'stationId': '', // Add if you have it
+      'stationName': issue.stationName,
+      'reportedBy': issue.reportedBy,
+      'reportedByUserId': userId,
+      'issueType': issue.issueType,
+      'time': issue.time.toIso8601String(),
+      'status': issue.status,
+    });
+  }
+
+  Future<List<ReportedIssue>> getAllIssues() async {
+    final db = await instance.database;
+    final result = await db.query('reported_issues', orderBy: 'time DESC');
+    return result.map((j) => ReportedIssue(
+      id: j['id'] as String,
+      stationName: j['stationName'] as String,
+      reportedBy: j['reportedBy'] as String,
+      issueType: j['issueType'] as String,
+      time: DateTime.parse(j['time'] as String),
+      status: j['status'] as String,
+    )).toList();
+  }
+
+  Future<List<ReportedIssue>> getIssuesForStation(String stationName) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'reported_issues',
+      where: 'stationName = ?',
+      whereArgs: [stationName],
+      orderBy: 'time DESC',
+    );
+    return result.map((j) => ReportedIssue(
+      id: j['id'] as String,
+      stationName: j['stationName'] as String,
+      reportedBy: j['reportedBy'] as String,
+      issueType: j['issueType'] as String,
+      time: DateTime.parse(j['time'] as String),
+      status: j['status'] as String,
+    )).toList();
+  }
+
+  Future<void> updateIssueStatus(String issueId, String status) async {
+    final db = await instance.database;
+    await db.update(
+      'reported_issues',
+      {'status': status},
+      where: 'id = ?',
+      whereArgs: [issueId],
+    );
+  }
+
+  Future<void> deleteIssue(String issueId) async {
+    final db = await instance.database;
+    await db.delete('reported_issues', where: 'id = ?', whereArgs: [issueId]);
+  }
+
+  // Get all transactions (for admin)
+  Future<List<WalletTransaction>> getAllTransactions() async {
+    final db = await instance.database;
+    final result = await db.query('transactions', orderBy: 'date DESC');
+    return result.map((j) => WalletTransaction(
+      id: j['id'] as String,
+      title: j['title'] as String,
+      date: DateTime.parse(j['date'] as String),
+      amount: (j['amount'] as num).toDouble(),
+      isCredit: j['isCredit'] == 1,
+    )).toList();
+  }
+
+  // Get bookings for any user (admin function)
+  Future<List<Booking>> getBookingsForUserAdmin(String userId) async {
+    return await getBookingsForUser(userId);
+  }
+
+  // Get transactions for any user (admin function)
+  Future<List<WalletTransaction>> getTransactionsForUserAdmin(String userId) async {
+    return await getTransactionsForUser(userId);
+  }
+
+  // Get vehicles for any user (admin function)
+  Future<List<Vehicle>> getVehiclesForUserAdmin(String userId) async {
+    return await getVehiclesForUser(userId);
+  }
+
+  // Get notifications for any user (admin function)
+  Future<List<AppNotification>> getNotificationsForUserAdmin(String userId) async {
+    return await getNotificationsForUser(userId);
+  }
+
+  // Get all bookings (for admin)
+  Future<List<Map<String, dynamic>>> getAllBookingsWithUserInfo() async {
+    final db = await instance.database;
+    final result = await db.rawQuery('''
+      SELECT bookings.*, users.name as userName, users.email as userEmail
+      FROM bookings
+      LEFT JOIN users ON bookings.userId = users.id
+      ORDER BY bookings.bookingTime DESC
+    ''');
+    return result;
+  }
+  // Get dashboard statistics (for admin)
+  Future<Map<String, dynamic>> getDashboardStats() async {
+    final db = await instance.database;
+
+    // Total users (non-admin)
+    final userCountResult = await db.rawQuery('SELECT COUNT(*) as count FROM users WHERE isAdmin = 0');
+    final totalUsers = Sqflite.firstIntValue(userCountResult) ?? 0;
+
+    // Total bookings
+    final bookingCountResult = await db.rawQuery('SELECT COUNT(*) as count FROM bookings');
+    final totalBookings = Sqflite.firstIntValue(bookingCountResult) ?? 0;
+
+    // Active bookings
+    final activeBookingsResult = await db.rawQuery("SELECT COUNT(*) as count FROM bookings WHERE status = 'active'");
+    final activeBookings = Sqflite.firstIntValue(activeBookingsResult) ?? 0;
+
+    // Completed bookings
+    final completedBookingsResult = await db.rawQuery("SELECT COUNT(*) as count FROM bookings WHERE status = 'completed'");
+    final completedBookings = Sqflite.firstIntValue(completedBookingsResult) ?? 0;
+
+    // Total revenue (sum of all non-credit transactions)
+    final revenueResult = await db.rawQuery('SELECT SUM(amount) as total FROM transactions WHERE isCredit = 0');
+    final totalRevenue = (revenueResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    // Total wallet loads (sum of all credit transactions)
+    final loadsResult = await db.rawQuery('SELECT SUM(amount) as total FROM transactions WHERE isCredit = 1');
+    final totalLoads = (loadsResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    // Total vehicles registered
+    final vehicleCountResult = await db.rawQuery('SELECT COUNT(*) as count FROM vehicles');
+    final totalVehicles = Sqflite.firstIntValue(vehicleCountResult) ?? 0;
+
+    // Pending issues
+    final issuesResult = await db.rawQuery("SELECT COUNT(*) as count FROM reported_issues WHERE status = 'Pending'");
+    final pendingIssues = Sqflite.firstIntValue(issuesResult) ?? 0;
+
+    // Today's bookings
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day).toIso8601String();
+    final todayEnd = DateTime(today.year, today.month, today.day, 23, 59, 59).toIso8601String();
+    final todayBookingsResult = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM bookings WHERE bookingTime BETWEEN ? AND ?",
+        [todayStart, todayEnd]
+    );
+    final todayBookings = Sqflite.firstIntValue(todayBookingsResult) ?? 0;
+
+    // Today's revenue
+    final todayRevenueResult = await db.rawQuery(
+        "SELECT SUM(amount) as total FROM transactions WHERE isCredit = 0 AND date BETWEEN ? AND ?",
+        [todayStart, todayEnd]
+    );
+    final todayRevenue = (todayRevenueResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    return {
+      'totalUsers': totalUsers,
+      'totalBookings': totalBookings,
+      'activeBookings': activeBookings,
+      'completedBookings': completedBookings,
+      'totalRevenue': totalRevenue,
+      'totalLoads': totalLoads,
+      'totalVehicles': totalVehicles,
+      'pendingIssues': pendingIssues,
+      'todayBookings': todayBookings,
+      'todayRevenue': todayRevenue,
+    };
+  }
+  // Get analytics for a specific station
+  Future<Map<String, dynamic>> getStationAnalytics(String stationId, String stationName) async {
+    final db = await instance.database;
+
+    // Total bookings for this station
+    final totalBookingsResult = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM bookings WHERE stationId = ?',
+        [stationId]
+    );
+    final totalBookings = Sqflite.firstIntValue(totalBookingsResult) ?? 0;
+
+    // Completed bookings
+    final completedResult = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM bookings WHERE stationId = ? AND status = 'completed'",
+        [stationId]
+    );
+    final completedBookings = Sqflite.firstIntValue(completedResult) ?? 0;
+
+    // Total revenue from this station (from transactions with station name in title)
+    final revenueResult = await db.rawQuery(
+        "SELECT SUM(amount) as total FROM transactions WHERE title LIKE ? AND isCredit = 0",
+        ['%$stationName%']
+    );
+    final totalRevenue = (revenueResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+    // Total issues reported for this station
+    final issuesResult = await db.rawQuery(
+        'SELECT COUNT(*) as count FROM reported_issues WHERE stationName = ?',
+        [stationName]
+    );
+    final totalIssues = Sqflite.firstIntValue(issuesResult) ?? 0;
+
+    // Pending issues
+    final pendingIssuesResult = await db.rawQuery(
+        "SELECT COUNT(*) as count FROM reported_issues WHERE stationName = ? AND status = 'Pending'",
+        [stationName]
+    );
+    final pendingIssues = Sqflite.firstIntValue(pendingIssuesResult) ?? 0;
+
+    // Average booking cost
+    final avgCostResult = await db.rawQuery(
+        "SELECT AVG(cost) as avg FROM bookings WHERE stationId = ? AND status = 'completed'",
+        [stationId]
+    );
+    final avgCost = (avgCostResult.first['avg'] as num?)?.toDouble() ?? 0.0;
+
+    // Recent bookings (last 5)
+    final recentBookings = await db.rawQuery(
+        '''SELECT bookings.*, users.name as userName 
+         FROM bookings 
+         LEFT JOIN users ON bookings.userId = users.id 
+         WHERE bookings.stationId = ? 
+         ORDER BY bookings.bookingTime DESC 
+         LIMIT 5''',
+        [stationId]
+    );
+
+    return {
+      'totalBookings': totalBookings,
+      'completedBookings': completedBookings,
+      'totalRevenue': totalRevenue,
+      'totalIssues': totalIssues,
+      'pendingIssues': pendingIssues,
+      'avgCost': avgCost,
+      'recentBookings': recentBookings,
+    };
+  }
+
+  // Get all stations with their analytics summary
+  Future<List<Map<String, dynamic>>> getAllStationsWithAnalytics() async {
+    final db = await instance.database;
+    final stations = await db.query('stations');
+
+    List<Map<String, dynamic>> result = [];
+    for (var station in stations) {
+      final stationId = station['id'] as String;
+      final stationName = station['name'] as String;
+
+      // Get booking count
+      final bookingResult = await db.rawQuery(
+          'SELECT COUNT(*) as count FROM bookings WHERE stationId = ?',
+          [stationId]
+      );
+      final bookingCount = Sqflite.firstIntValue(bookingResult) ?? 0;
+
+      // Get revenue
+      final revenueResult = await db.rawQuery(
+          "SELECT SUM(amount) as total FROM transactions WHERE title LIKE ? AND isCredit = 0",
+          ['%$stationName%']
+      );
+      final revenue = (revenueResult.first['total'] as num?)?.toDouble() ?? 0.0;
+
+      result.add({
+        ...station,
+        'bookingCount': bookingCount,
+        'revenue': revenue,
+      });
+    }
+
+    return result;
+  }
+
+  // ==========================================
+  // SENT NOTIFICATIONS (Admin History)
+  // ==========================================
+
+  Future<void> insertSentNotification({
+    required String title,
+    required String body,
+    required String targetType,
+    String? targetUserId,
+    String? targetUserName,
+  }) async {
+    final db = await instance.database;
+    await db.insert('sent_notifications', {
+      'id': 'SN_${DateTime.now().millisecondsSinceEpoch}',
+      'title': title,
+      'body': body,
+      'targetType': targetType,
+      'targetUserId': targetUserId,
+      'targetUserName': targetUserName,
+      'sentAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getSentNotifications() async {
+    final db = await instance.database;
+    return await db.query('sent_notifications', orderBy: 'sentAt DESC');
   }
 }
