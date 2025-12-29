@@ -121,12 +121,14 @@ class DatabaseHelper {
     await db.execute('''
       CREATE TABLE transactions (
         id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        title TEXT,
-        date TEXT,
-        amount REAL,
-        isCredit INTEGER,
-        FOREIGN KEY (userId) REFERENCES users(id)
+        oderId TEXT NOT NULL,
+        title TEXT NOT NULL,
+        date TEXT NOT NULL,
+        amount REAL NOT NULL,
+        isCredit INTEGER NOT NULL,
+        paymentMethod TEXT DEFAULT 'Wallet',
+        upiId TEXT,
+        FOREIGN KEY (oderId) REFERENCES users(id)
       )
     ''');
 
@@ -189,8 +191,8 @@ class DatabaseHelper {
     // Insert default ADMIN account
     await db.insert('users', {
       'id': 'ADMIN_001',
-      'name': 'Arihant (Admin)',
-      'email': 'arihant@manipal.edu',
+      'name': 'Administrator',
+      'email': 'admin@manipal.edu',
       'password': 'admin123',
       'userType': 'admin',
       'isAdmin': 1,

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:math';
 import 'dart:async';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -243,12 +247,30 @@ class Station {
   }
 }
 
+// Helper to calculate distance between two coordinates
+double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  const double earthRadius = 6371; // km
+  double dLat = _toRadians(lat2 - lat1);
+  double dLon = _toRadians(lon2 - lon1);
+  double a = sin(dLat / 2) * sin(dLat / 2) +
+      cos(_toRadians(lat1)) * cos(_toRadians(lat2)) *
+          sin(dLon / 2) * sin(dLon / 2);
+  double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+  return earthRadius * c;
+}
+
+double _toRadians(double degree) {
+  return degree * pi / 180;
+}
+
 class WalletTransaction {
   final String id;
   final String title;
   final DateTime date;
   final double amount;
   final bool isCredit;
+  final String paymentMethod; // NEW: 'UPI', 'Card', 'Wallet', etc.
+  final String? upiId; // NEW: Store UPI ID if paid via UPI
 
   WalletTransaction({
     required this.id,
@@ -256,6 +278,8 @@ class WalletTransaction {
     required this.date,
     required this.amount,
     required this.isCredit,
+    this.paymentMethod = 'Wallet',
+    this.upiId,
   });
 }
 
@@ -416,59 +440,7 @@ class Vehicle {
 
 // --- MOCK DATA ---
 
-// --- MOCK DATA FOR VEHICLES ---
-List<Vehicle> mockVehicles = [
-  Vehicle(
-    id: 'V1',
-    make: 'TATA',
-    model: 'Nexon EV',
-    licensePlate: 'KA 01 EV 1234',
-    connectorType: 'CCS Type 2',
-    isPrimary: true,
-    batteryCapacityKWh: 30.2,
-    initialSOCPercent: 30,
-  ),
-  Vehicle(
-    id: 'V2',
-    make: 'MG',
-    model: 'ZS EV',
-    licensePlate: 'KA 01 MG 0077',
-    connectorType: 'Type 2 AC',
-    isPrimary: false,
-    batteryCapacityKWh: 44.5,
-    initialSOCPercent: 50,
-  ),
-];
-
-// Initial Notifications
-List<AppNotification> mockNotifications = [
-  AppNotification(
-    title: 'Charging Complete',
-    body: 'Your vehicle at MIT Quadrangle has finished charging.',
-    time: DateTime.now().subtract(const Duration(minutes: 30)),
-    read: false,
-  ),
-  AppNotification(
-    title: 'Low Balance Alert',
-    body: 'Your wallet balance is below ₹100. Top up to ensure uninterrupted charging.',
-    time: DateTime.now().subtract(const Duration(hours: 5)),
-    read: true,
-  ),
-  AppNotification(
-    title: 'New Station Added',
-    body: 'A new fast charger is now available at AB-5 Solar Carport.',
-    time: DateTime.now().subtract(const Duration(days: 1)),
-    read: true,
-  ),
-  AppNotification(
-    title: 'Maintenance Update',
-    body: 'KMC Staff Parking station will be down for maintenance tomorrow from 10 AM to 2 PM.',
-    time: DateTime.now().subtract(const Duration(days: 2)),
-    read: true,
-  ),
-];
-
-// Initial Stations (UPDATED with REAL LatLng COORDINATES)
+// Initial Stations
 List<Station> mockStations = [
   Station(
       id: '1', name: 'MIT Quadrangle', location: 'Block 4', distance: 0.5, isFastCharger: true, totalPorts: 4, availablePorts: 2, isSharedPower: true, isSolarPowered: true,
@@ -494,19 +466,16 @@ List<Station> mockStations = [
 
 // Global User State (Starts empty, populated on Login)
 UserProfile currentUser = UserProfile(
-  id: 'U001',
-  name: 'Manipal User',
-  email: 'user@mahe.ac.in',
-  password: '123', // Add this
-  userType: 'student',
-  walletBalance: 450.0,
+  id: '',
+  name: '',
+  email: '',
+  password: '',
+  userType: '',
+  walletBalance: 0,
   bookings: [],
-  transactions: [
-    WalletTransaction(id: 'T1', title: 'Added Money', date: DateTime.now().subtract(const Duration(days: 1)), amount: 500, isCredit: true),
-    WalletTransaction(id: 'T2', title: 'Charging - MIT Quad', date: DateTime.now().subtract(const Duration(days: 2)), amount: 50, isCredit: false),
-  ],
-  vehicles: mockVehicles,
-  notifications: mockNotifications,
+  transactions: [],
+  vehicles: [],
+  notifications: [],
 );
 
 // --- LOGIN SCREEN ---
@@ -1312,23 +1281,34 @@ class StationCard extends StatelessWidget {
   }
 }
 
-void launchMapsUrl(String destinationName) async {
-  // Use 'google.navigation' scheme to open Google Maps and start navigation
-  // 'q' is the destination, and 'mode=d' requests driving directions.
-  final url = 'google.navigation:q=${Uri.encodeComponent(destinationName)}&mode=d';
+void launchMapsUrl(String destinationName, {double? destLat, double? destLng}) async {
+  String url;
 
-  // Check if the Google Maps app can be launched
-  if (await canLaunchUrl(Uri.parse(url))) {
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-  } else {
-    // Fallback: Open Google Maps in a web browser for directions
-    final webUrl = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(destinationName)}';
-    if (await canLaunchUrl(Uri.parse(webUrl))) {
-      await launchUrl(Uri.parse(webUrl), mode: LaunchMode.platformDefault);
-    } else {
-      // Handle error if neither the app nor the web link can be opened
-      throw 'Could not launch Maps for $destinationName';
+  if (destLat != null && destLng != null) {
+    // Use coordinates for precise navigation with Google Maps app
+    final googleNavUrl = 'google.navigation:q=$destLat,$destLng&mode=d';
+    if (await canLaunchUrl(Uri.parse(googleNavUrl))) {
+      await launchUrl(Uri.parse(googleNavUrl), mode: LaunchMode.externalApplication);
+      return;
     }
+    // Fallback to web with coordinates
+    url = 'https://www.google.com/maps/dir/?api=1&destination=$destLat,$destLng&travelmode=driving';
+  } else {
+    // Use 'google.navigation' scheme with destination name
+    final googleNavUrl = 'google.navigation:q=${Uri.encodeComponent(destinationName)}&mode=d';
+    if (await canLaunchUrl(Uri.parse(googleNavUrl))) {
+      await launchUrl(Uri.parse(googleNavUrl), mode: LaunchMode.externalApplication);
+      return;
+    }
+    // Fallback to web search
+    url = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(destinationName)}';
+  }
+
+  // Try to launch the web URL
+  if (await canLaunchUrl(Uri.parse(url))) {
+    await launchUrl(Uri.parse(url), mode: LaunchMode.platformDefault);
+  } else {
+    throw 'Could not launch Maps for $destinationName';
   }
 }
 
@@ -1535,7 +1515,7 @@ class _StationDetailScreenState extends State<StationDetailScreen> {
               width: double.infinity,
               child: OutlinedButton.icon(
                 onPressed: () {
-                  launchMapsUrl(widget.station.name);
+                  launchMapsUrl(widget.station.name, destLat: widget.station.mapY, destLng: widget.station.mapX);
                   ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(
                           'Opening maps to ${widget.station.location}...'))
@@ -1980,7 +1960,7 @@ class _MapViewScreenState extends State<MapViewScreen> {
                                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cannot start navigation. Getting GPS fix...')));
                               } else {
                                 // Initiate Navigation Simulation
-                                _launchMapsUrl(station.name);
+                                _launchMapsUrl(station.name, destLat: station.mapY, destLng: station.mapX);
                                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Starting navigation to ${station.name}...')));
                               }
                             },
@@ -2224,19 +2204,30 @@ class _MapViewScreenState extends State<MapViewScreen> {
   }
 }
 
-Future<void> _launchMapsUrl(String destinationName) async {
-  // We use a query that Google Maps can resolve to the closest charging location
-  final uri = Uri.parse(
-      'https://www.google.com/maps/search/?api=1&query=EV Charging $destinationName'
-  );
+Future<void> _launchMapsUrl(String destinationName, {double? destLat, double? destLng}) async {
+  String url;
 
-  // In a real app, this would use the url_launcher package:
-  // if (await launchUrl(uri, mode: LaunchMode.externalApplication)) { /* success */ }
+  if (destLat != null && destLng != null) {
+    // Use coordinates for precise navigation
+    url = 'https://www.google.com/maps/dir/?api=1&destination=$destLat,$destLng&travelmode=driving';
+  } else {
+    // Fallback to search query
+    url = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent('EV Charging $destinationName')}';
+  }
 
-  print('Attempting to launch map URL: ${uri.toString()}');
+  final uri = Uri.parse(url);
+
+  try {
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      // Fallback: try to launch anyway
+      await launchUrl(uri, mode: LaunchMode.platformDefault);
+    }
+  } catch (e) {
+    print('Could not launch maps: $e');
+  }
 }
-
-
 
 class _TimeSlotChip extends StatelessWidget {
   final String label;
@@ -3340,9 +3331,19 @@ class WalletScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
                       children: [
-                        Expanded(child: _QuickInfoCard(icon: Icons.savings_outlined, title: 'Total Saved', value: '₹120', subtitle: 'vs Third-party apps')),
+                        Expanded(child: _QuickInfoCard(
+                            icon: Icons.savings_outlined,
+                            title: 'Total Saved',
+                            value: '₹${(currentUser.bookings.where((b) => b.status == 'completed').length * 15).toStringAsFixed(0)}',
+                            subtitle: 'vs Third-party apps'
+                        )),
                         const SizedBox(width: 12),
-                        Expanded(child: _QuickInfoCard(icon: Icons.eco_outlined, title: 'CO₂ Saved', value: '45 kg', subtitle: 'Using solar power')),
+                        Expanded(child: _QuickInfoCard(
+                            icon: Icons.eco_outlined,
+                            title: 'CO₂ Saved',
+                            value: '${(currentUser.bookings.where((b) => b.status == 'completed').fold(0.0, (sum, b) => sum + (b.cost * 0.1))).toStringAsFixed(1)} kg',
+                            subtitle: 'Using solar power'
+                        )),
                       ],
                     ),
                   ),
@@ -3431,35 +3432,226 @@ class WalletScreen extends StatelessWidget {
     );
   }
 
-  // FIXED LOGIC: Does not contain Navigator.pop(), so it's safe for Quick Add chips
   void _processAddMoney(BuildContext context, StateSetter setState, double amount) {
-    // 1. Update Global State
-    currentUser.walletBalance += amount;
+    // Show payment method selection dialog
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Select Payment Method'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.account_balance, color: Colors.purple),
+              title: const Text('UPI'),
+              subtitle: const Text('GPay, PhonePe, Paytm'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showUPIPaymentDialog(context, setState, amount);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.credit_card, color: Colors.blue),
+              title: const Text('Credit/Debit Card'),
+              subtitle: const Text('Visa, Mastercard, RuPay'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showCardPaymentDialog(context, setState, amount);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
 
-    // 2. Add Fake Transaction
-    currentUser.transactions.insert(0, WalletTransaction(
+  void _showUPIPaymentDialog(BuildContext context, StateSetter setState, double amount) {
+    final upiController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('UPI Payment'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Amount: ₹${amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: upiController,
+              decoration: const InputDecoration(
+                labelText: 'Enter UPI ID',
+                hintText: 'example@upi',
+                prefixIcon: Icon(Icons.account_balance),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text('or scan QR code', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (upiController.text.isEmpty || !upiController.text.contains('@')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a valid UPI ID')),
+                );
+                return;
+              }
+              Navigator.pop(ctx);
+              _completePayment(context, setState, amount, 'UPI', upiController.text);
+            },
+            child: const Text('Pay Now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCardPaymentDialog(BuildContext context, StateSetter setState, double amount) {
+    final cardController = TextEditingController();
+    final expiryController = TextEditingController();
+    final cvvController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Card Payment'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Amount: ₹${amount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: cardController,
+                keyboardType: TextInputType.number,
+                maxLength: 16,
+                decoration: const InputDecoration(
+                  labelText: 'Card Number',
+                  hintText: '1234 5678 9012 3456',
+                  prefixIcon: Icon(Icons.credit_card),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: expiryController,
+                      keyboardType: TextInputType.datetime,
+                      maxLength: 5,
+                      decoration: const InputDecoration(
+                        labelText: 'MM/YY',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: cvvController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 3,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'CVV',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (cardController.text.length < 16) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter valid card details')),
+                );
+                return;
+              }
+              Navigator.pop(ctx);
+              // Mask card number for display
+              final maskedCard = '**** **** **** ${cardController.text.substring(12)}';
+              _completePayment(context, setState, amount, 'Card', maskedCard);
+            },
+            child: const Text('Pay Now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _completePayment(BuildContext context, StateSetter setState, double amount, String method, String details) {
+    // Show processing
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Processing payment...'),
+          ],
+        ),
+      ),
+    );
+
+    // Simulate payment processing
+    Future.delayed(const Duration(seconds: 2), () {
+      Navigator.pop(context); // Close processing dialog
+
+      // 1. Update Global State
+      currentUser.walletBalance += amount;
+
+      // 2. Add Transaction with payment method
+      currentUser.transactions.insert(0, WalletTransaction(
         id: "ADD${DateTime.now().millisecondsSinceEpoch}",
-        title: "Wallet Top-up",
+        title: "Wallet Top-up via $method",
         date: DateTime.now(),
         amount: amount,
-        isCredit: true
-    ));
-    // Save to SQL
-    final txn = currentUser.transactions.first;
-    DatabaseHelper.instance.insertTransaction(txn, currentUser.id);
-    DatabaseHelper.instance.updateWalletBalance(currentUser.id, currentUser.walletBalance);
+        isCredit: true,
+        paymentMethod: method,
+        upiId: method == 'UPI' ? details : null,
+      ));
 
-    // 3. Update Local UI State
-    setState(() {});
+      // Save to SQL
+      final txn = currentUser.transactions.first;
+      DatabaseHelper.instance.insertTransaction(txn, currentUser.id);
+      DatabaseHelper.instance.updateWalletBalance(currentUser.id, currentUser.walletBalance);
 
-    // 4. Show Feedback
-    ScaffoldMessenger.of(context).showSnackBar(
+      // 3. Update Local UI State
+      setState(() {});
+
+      // 4. Show Success
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('₹${amount.toStringAsFixed(0)} added successfully'),
+          content: Text('₹${amount.toStringAsFixed(0)} added via $method'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 1),
-        )
-    );
+        ),
+      );
+    });
   }
 }
 
@@ -3519,9 +3711,41 @@ class _QuickAddChip extends StatelessWidget {
 }
 
 // --- PROFILE SCREEN (UPDATED) ---
-// --- PROFILE SCREEN (UPDATED with Vehicle Management) ---
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  int _totalSessions = 0;
+  double _totalKWh = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStatistics();
+  }
+
+  Future<void> _loadStatistics() async {
+    // Count completed bookings for this user
+    final completedBookings = currentUser.bookings.where((b) => b.status == 'completed').toList();
+
+    // Calculate total kWh (assuming average 15 kWh per session, or calculate from duration)
+    double totalEnergy = 0;
+    for (var booking in completedBookings) {
+      // Estimate: duration in minutes / 60 * charging rate (assume 7 kW average)
+      totalEnergy += booking.cost / 8;
+    }
+
+    if (mounted) {
+      setState(() {
+        _totalSessions = completedBookings.length;
+        _totalKWh = totalEnergy;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3560,7 +3784,7 @@ class ProfileScreen extends StatelessWidget {
                       Text(
                           currentUser.email,
                           style: TextStyle(
-                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7) // Use a clearer, darker shade of the primary text color
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7)
                           )
                       ),
                       const SizedBox(height: 4),
@@ -3584,18 +3808,17 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          // VEHICLES SECTION (NEW)
+          // VEHICLES SECTION
           const Text('Vehicle & Charging', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           _SettingsTile(
               icon: Icons.directions_car_outlined,
               title: 'Vehicle Management',
-              // Use a noticeable color for the count text
               trailing: Text(
                   '${currentUser.vehicles.length} vehicles',
                   style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary // Use the MAHE Teal color
+                      color: Theme.of(context).colorScheme.primary
                   )
               ),
               onTap: () {
@@ -3631,9 +3854,9 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _StatBox(icon: Icons.bolt, value: '24', label: 'Sessions')),
+              Expanded(child: _StatBox(icon: Icons.bolt, value: '$_totalSessions', label: 'Sessions')),
               const SizedBox(width: 12),
-              Expanded(child: _StatBox(icon: Icons.eco, value: '120 kWh', label: 'Clean Energy')),
+              Expanded(child: _StatBox(icon: Icons.eco, value: '${_totalKWh.toStringAsFixed(1)} kWh', label: 'Clean Energy')),
             ],
           ),
           const SizedBox(height: 24),
@@ -4276,6 +4499,80 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
     });
   }
 
+  void _editAccount(BankAccount account) {
+    _bankController.text = account.bankName;
+    _accController.text = account.accountNumber;
+    _holderController.text = account.holderName;
+
+    final isDark = currentUser.isAdmin || Theme.of(context).brightness == Brightness.dark;
+    final dialogBg = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black;
+    final inputStyle = TextStyle(color: textColor);
+    final hintStyle = TextStyle(color: isDark ? Colors.grey : Colors.black54);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: dialogBg,
+        title: Text("Edit Bank Account", style: TextStyle(color: textColor)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _bankController,
+              style: inputStyle,
+              decoration: InputDecoration(
+                labelText: "Bank Name",
+                labelStyle: hintStyle,
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.grey : Colors.black45)),
+                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00796B))),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _accController,
+              style: inputStyle,
+              decoration: InputDecoration(
+                labelText: "Account Number",
+                labelStyle: hintStyle,
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.grey : Colors.black45)),
+                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00796B))),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _holderController,
+              style: inputStyle,
+              decoration: InputDecoration(
+                labelText: "Holder Name",
+                labelStyle: hintStyle,
+                enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.grey : Colors.black45)),
+                focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Color(0xFF00796B))),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00796B), foregroundColor: Colors.white),
+            onPressed: () {
+              if (_bankController.text.isNotEmpty) {
+                setState(() {
+                  account.bankName = _bankController.text.toUpperCase();
+                  account.accountNumber = _accController.text;
+                  account.holderName = _holderController.text.toUpperCase();
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text("Save"),
+          )
+        ],
+      ),
+    );
+  }
+
   void _setPrimary(String id) {
     setState(() {
       _primaryAccountId = id;
@@ -4444,10 +4741,20 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
                           ],
                         ),
                         const Divider(height: 1),
-                        TextButton.icon(
-                          onPressed: () => _deleteAccount(acc.id),
-                          icon: const Icon(Icons.delete, color: Colors.red, size: 18),
-                          label: const Text("Unlink Account", style: TextStyle(color: Colors.red)),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () => _editAccount(acc),
+                              icon: Icon(Icons.edit, color: isDark ? Colors.blue : Colors.blueAccent, size: 18),
+                              label: Text("Edit", style: TextStyle(color: isDark ? Colors.blue : Colors.blueAccent)),
+                            ),
+                            TextButton.icon(
+                              onPressed: () => _deleteAccount(acc.id),
+                              icon: const Icon(Icons.delete, color: Colors.red, size: 18),
+                              label: const Text("Unlink", style: TextStyle(color: Colors.red)),
+                            ),
+                          ],
                         )
                       ],
                     ),
@@ -4477,19 +4784,23 @@ class AdminDashboardScreen extends StatefulWidget {
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _adminScreens = [
-    const AdminDashboardHome(),      // Tab 1: Dashboard
-    const AdminStationsTab(),         // Tab 2: Stations (List + Map)
-    const AdminUsersTab(),            // Tab 3: Users
-    const AdminAlertsTab(),           // Tab 4: Alerts & Bookings
-    const AdminSettingsTab(),         // Tab 5: Finance & Settings
-  ];
+  void _navigateToTab(int index) {
+    setState(() => _selectedIndex = index);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> adminScreens = [
+      AdminDashboardHome(onNavigateToTab: _navigateToTab),
+      const AdminStationsTab(),
+      const AdminUsersTab(),
+      const AdminAlertsTab(),
+      const AdminSettingsTab(),
+    ];
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
-      body: _adminScreens[_selectedIndex],
+      body: adminScreens[_selectedIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) => setState(() => _selectedIndex = index),
@@ -4531,7 +4842,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 // TAB 1: DASHBOARD HOME
 // ============================================
 class AdminDashboardHome extends StatefulWidget {
-  const AdminDashboardHome({super.key});
+  final Function(int) onNavigateToTab;
+  const AdminDashboardHome({super.key, required this.onNavigateToTab});
 
   @override
   State<AdminDashboardHome> createState() => _AdminDashboardHomeState();
@@ -4614,7 +4926,7 @@ class _AdminDashboardHomeState extends State<AdminDashboardHome> {
 
               // Recent Bookings
               _buildSectionHeader('Recent Bookings', () {
-                // Navigate to full bookings list
+                widget.onNavigateToTab(3); // Navigate to Alerts tab (which has All Bookings)
               }),
               const SizedBox(height: 12),
               _buildRecentBookings(),
@@ -4622,7 +4934,7 @@ class _AdminDashboardHomeState extends State<AdminDashboardHome> {
 
               // Recent Transactions
               _buildSectionHeader('Recent Transactions', () {
-                // Navigate to full transactions list
+                widget.onNavigateToTab(4); // Navigate to Settings tab (which has Finance)
               }),
               const SizedBox(height: 12),
               _buildRecentTransactions(),
@@ -4729,19 +5041,13 @@ class _AdminDashboardHomeState extends State<AdminDashboardHome> {
       children: [
         Expanded(
           child: _buildActionButton('Add Station', Icons.add_location, Colors.blue, () {
-            // Will be handled by Stations tab
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Go to Stations tab to add a new station')),
-            );
+            widget.onNavigateToTab(1); // Navigate to Stations tab
           }),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: _buildActionButton('Send Alert', Icons.send, Colors.orange, () {
-            // Will be handled by Alerts tab
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Go to Alerts tab to send notifications')),
-            );
+            widget.onNavigateToTab(3); // Navigate to Alerts tab
           }),
         ),
       ],
@@ -5053,6 +5359,89 @@ class _AdminStationsTabState extends State<AdminStationsTab> {
     );
   }
 
+  void _showPortManagementDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF2C2C2C),
+            title: const Text('Port Management', style: TextStyle(color: Colors.white)),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 400,
+              child: ListView.builder(
+                itemCount: mockStations.length,
+                itemBuilder: (context, index) {
+                  final station = mockStations[index];
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E1E1E),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(station.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              Text('${station.availablePorts}/${station.totalPorts} ports available', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle, color: Colors.red),
+                              onPressed: station.availablePorts > 0
+                                  ? () {
+                                setDialogState(() {
+                                  station.availablePorts--;
+                                });
+                                setState(() {});
+                                DatabaseHelper.instance.updateStation(station);
+                              }
+                                  : null,
+                            ),
+                            Text(
+                              '${station.availablePorts}',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle, color: Colors.green),
+                              onPressed: station.availablePorts < station.totalPorts
+                                  ? () {
+                                setDialogState(() {
+                                  station.availablePorts++;
+                                });
+                                setState(() {});
+                                DatabaseHelper.instance.updateStation(station);
+                              }
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -5063,6 +5452,12 @@ class _AdminStationsTabState extends State<AdminStationsTab> {
         foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
         actions: [
+          // Port Management Button
+          IconButton(
+            icon: const Icon(Icons.settings_input_component),
+            onPressed: () => _showPortManagementDialog(),
+            tooltip: 'Port Management',
+          ),
           // Toggle View Button
           IconButton(
             icon: Icon(_isMapView ? Icons.list : Icons.map),
@@ -5221,53 +5616,127 @@ class _AdminStationsTabState extends State<AdminStationsTab> {
   }
 
   Widget _buildMapView() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _manipalCenter,
-        initialZoom: 14.0,
-        onTap: (tapPosition, latLng) {
-          _addNewStation(lat: latLng.latitude, lon: latLng.longitude);
-        },
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.mahe.ev',
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _manipalCenter,
+            initialZoom: 14.0,
+            minZoom: 12.0,
+            maxZoom: 18.0,
+            onTap: (tapPosition, latLng) {
+              _addNewStation(lat: latLng.latitude, lon: latLng.longitude);
+            },
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.mahe.ev',
+            ),
+            MarkerLayer(
+              markers: _filteredStations.map((station) {
+                return Marker(
+                  point: LatLng(station.mapY, station.mapX),
+                  width: 120,
+                  height: 80,
+                  child: GestureDetector(
+                    onTap: () => _openStationInspector(station),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.location_on,
+                          color: station.availablePorts > 0 ? Colors.green : Colors.red,
+                          size: 40,
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
+                          ),
+                          child: Text(
+                            station.name,
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
         ),
-        MarkerLayer(
-          markers: _filteredStations.map((station) {
-            return Marker(
-              point: LatLng(station.mapY, station.mapX),
-              width: 120,
-              height: 80,
-              child: GestureDetector(
-                onTap: () => _openStationInspector(station),
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.location_on,
-                      color: station.availablePorts > 0 ? Colors.green : Colors.red,
-                      size: 40,
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(4),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)],
-                      ),
-                      child: Text(
-                        station.name,
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
+
+        // Zoom Controls & Locate Button
+        Positioned(
+          bottom: 100,
+          right: 16,
+          child: Column(
+            children: [
+              // Zoom In
+              FloatingActionButton(
+                heroTag: "admin_zoom_in",
+                mini: true,
+                backgroundColor: Colors.white,
+                onPressed: () {
+                  final currentZoom = _mapController.camera.zoom;
+                  _mapController.move(_mapController.camera.center, currentZoom + 1);
+                },
+                child: const Icon(Icons.add, color: Colors.black87),
               ),
-            );
-          }).toList(),
+              const SizedBox(height: 8),
+
+              // Zoom Out
+              FloatingActionButton(
+                heroTag: "admin_zoom_out",
+                mini: true,
+                backgroundColor: Colors.white,
+                onPressed: () {
+                  final currentZoom = _mapController.camera.zoom;
+                  _mapController.move(_mapController.camera.center, currentZoom - 1);
+                },
+                child: const Icon(Icons.remove, color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+
+              // Locate Me / Center Map
+              FloatingActionButton(
+                heroTag: "admin_center",
+                mini: false,
+                backgroundColor: Colors.white,
+                onPressed: () {
+                  _mapController.move(_manipalCenter, 14.0);
+                },
+                child: const Icon(Icons.my_location, color: Colors.black87),
+              ),
+            ],
+          ),
+        ),
+
+        // Tap to Add Hint - At Top
+        Positioned(
+          top: 8,
+          left: 16,
+          right: 16,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.touch_app, color: Colors.white, size: 16),
+                SizedBox(width: 8),
+                Text('Tap on map to add station', style: TextStyle(color: Colors.white, fontSize: 12)),
+              ],
+            ),
+          ),
         ),
       ],
     );
@@ -6943,13 +7412,6 @@ class _AdminSettingsTabState extends State<AdminSettingsTab> {
           ),
           const SizedBox(height: 12),
           _buildSettingsOption(
-            'Station Port Management',
-            'Manually adjust port availability',
-            Icons.settings_input_component,
-                () => _showPortManagementDialog(),
-          ),
-          const SizedBox(height: 12),
-          _buildSettingsOption(
             'Export Data',
             'Download reports and data',
             Icons.download,
@@ -7020,87 +7482,6 @@ class _AdminSettingsTabState extends State<AdminSettingsTab> {
     );
   }
 
-  void _showPortManagementDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2C2C2C),
-        title: const Text('Port Management', style: TextStyle(color: Colors.white)),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 400,
-          child: ListView.builder(
-            itemCount: mockStations.length,
-            itemBuilder: (context, index) {
-              final station = mockStations[index];
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E1E1E),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(station.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          Text('${station.availablePorts}/${station.totalPorts} ports available', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle, color: Colors.red),
-                          onPressed: station.availablePorts > 0
-                              ? () {
-                            setState(() {
-                              station.availablePorts--;
-                            });
-                            DatabaseHelper.instance.updateStation(station);
-                            Navigator.pop(context);
-                            _showPortManagementDialog();
-                          }
-                              : null,
-                        ),
-                        Text(
-                          '${station.availablePorts}',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.add_circle, color: Colors.green),
-                          onPressed: station.availablePorts < station.totalPorts
-                              ? () {
-                            setState(() {
-                              station.availablePorts++;
-                            });
-                            DatabaseHelper.instance.updateStation(station);
-                            Navigator.pop(context);
-                            _showPortManagementDialog();
-                          }
-                              : null,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showExportDialog() {
     showDialog(
       context: context,
@@ -7110,25 +7491,24 @@ class _AdminSettingsTabState extends State<AdminSettingsTab> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildExportOption('Export Bookings', Icons.book_online, () {
+            _buildExportOption('Export Bookings', Icons.book_online, () async {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Bookings export coming soon!')),
-              );
+              await _exportBookingsToCSV();
             }),
             const SizedBox(height: 12),
-            _buildExportOption('Export Transactions', Icons.receipt_long, () {
+            _buildExportOption('Export Transactions', Icons.receipt_long, () async {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Transactions export coming soon!')),
-              );
+              await _exportTransactionsToCSV();
             }),
             const SizedBox(height: 12),
-            _buildExportOption('Export Users', Icons.people, () {
+            _buildExportOption('Export Users', Icons.people, () async {
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Users export coming soon!')),
-              );
+              await _exportUsersToCSV();
+            }),
+            const SizedBox(height: 12),
+            _buildExportOption('Export Stations', Icons.ev_station, () async {
+              Navigator.pop(context);
+              await _exportStationsToCSV();
             }),
           ],
         ),
@@ -7140,6 +7520,133 @@ class _AdminSettingsTabState extends State<AdminSettingsTab> {
         ],
       ),
     );
+  }
+
+  Future<void> _exportBookingsToCSV() async {
+    try {
+      final bookings = await DatabaseHelper.instance.getAllBookingsWithUserInfo();
+
+      if (bookings.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No bookings to export')),
+        );
+        return;
+      }
+
+      // Create CSV content
+      StringBuffer csv = StringBuffer();
+      csv.writeln('Booking ID,User Name,User Email,Station Name,Booking Time,Duration (mins),Cost,Status');
+
+      for (var b in bookings) {
+        csv.writeln('"${b['id'] ?? ''}","${b['userName'] ?? ''}","${b['userEmail'] ?? ''}","${b['stationName'] ?? ''}","${b['bookingTime'] ?? ''}","${b['duration'] ?? ''}","${b['cost'] ?? ''}","${b['status'] ?? ''}"');
+      }
+
+      await _shareCSV(csv.toString(), 'bookings_export.csv');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _exportTransactionsToCSV() async {
+    try {
+      final transactions = await DatabaseHelper.instance.getAllTransactions();
+
+      if (transactions.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No transactions to export')),
+        );
+        return;
+      }
+
+      // Create CSV content
+      StringBuffer csv = StringBuffer();
+      csv.writeln('Transaction ID,Title,Date,Amount,Type');
+
+      for (var t in transactions) {
+        csv.writeln('"${t.id}","${t.title}","${t.date.toIso8601String()}","${t.amount}","${t.isCredit ? 'Credit' : 'Debit'}"');
+      }
+
+      await _shareCSV(csv.toString(), 'transactions_export.csv');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _exportUsersToCSV() async {
+    try {
+      final users = await DatabaseHelper.instance.getAllUsers();
+
+      if (users.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No users to export')),
+        );
+        return;
+      }
+
+      // Create CSV content
+      StringBuffer csv = StringBuffer();
+      csv.writeln('User ID,Name,Email,User Type,Wallet Balance,Is Admin');
+
+      for (var u in users) {
+        csv.writeln('"${u.id}","${u.name}","${u.email}","${u.userType}","${u.walletBalance}","${u.isAdmin ? 'Yes' : 'No'}"');
+      }
+
+      await _shareCSV(csv.toString(), 'users_export.csv');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _exportStationsToCSV() async {
+    try {
+      if (mockStations.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No stations to export')),
+        );
+        return;
+      }
+
+      // Create CSV content
+      StringBuffer csv = StringBuffer();
+      csv.writeln('Station ID,Name,Location,Total Ports,Available Ports,Connector Type,Price Per Unit,Fast Charger,Solar Powered,Latitude,Longitude');
+
+      for (var s in mockStations) {
+        csv.writeln('"${s.id}","${s.name}","${s.location}","${s.totalPorts}","${s.availablePorts}","${s.connectorType}","${s.pricePerUnit}","${s.isFastCharger ? 'Yes' : 'No'}","${s.isSolarPowered ? 'Yes' : 'No'}","${s.mapY}","${s.mapX}"');
+      }
+
+      await _shareCSV(csv.toString(), 'stations_export.csv');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _shareCSV(String csvContent, String fileName) async {
+    try {
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsString(csvContent);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        subject: 'MAHE EV App - $fileName',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$fileName ready to share!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Share failed: $e')),
+      );
+    }
   }
 
   Widget _buildExportOption(String title, IconData icon, VoidCallback onTap) {
@@ -7854,7 +8361,6 @@ class _AdminUserManagementScreenState extends State<AdminUserManagementScreen> {
                   items: const [
                     DropdownMenuItem(value: 'student', child: Text('Student')),
                     DropdownMenuItem(value: 'staff', child: Text('Staff')),
-                    DropdownMenuItem(value: 'guest', child: Text('Guest')),
                   ],
                   onChanged: (val) => setDialogState(() => userType = val!),
                 ),
