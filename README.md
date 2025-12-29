@@ -264,5 +264,5 @@ assets/
 ├── splash_logo.png       # Splash screen logo
 ```
 
-👨‍💻 Developer
-Arihant Khaitan
+## 👨‍💻 Developer
+**Arihant Khaitan**
