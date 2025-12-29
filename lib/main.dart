@@ -262,6 +262,8 @@ double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
 double _toRadians(double degree) {
   return degree * pi / 180;
 }
+// Global variable to store user position for distance calculation
+Position? globalUserPosition;
 
 class WalletTransaction {
   final String id;
@@ -976,6 +978,49 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String _filterType = 'all';
+  @override
+  void initState() {
+    super.initState();
+    _initGPS();
+  }
+
+  Future<void> _initGPS() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
+      setState(() {
+        globalUserPosition = position;
+      });
+    } catch (e) {
+      print('Home GPS error: $e');
+      // Fallback for emulator
+      setState(() {
+        globalUserPosition = Position(
+          latitude: 13.3523,
+          longitude: 74.7927,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+      });
+    }
+  }
 
   // New helper to get the primary vehicle's connector type
   String? get primaryConnectorType {
@@ -1171,6 +1216,18 @@ class _FilterChip extends StatelessWidget {
 class StationCard extends StatelessWidget {
   final Station station;
   const StationCard({super.key, required this.station});
+  String _getDistanceText(Station station) {
+    if (globalUserPosition != null) {
+      double dist = calculateDistance(
+        globalUserPosition!.latitude,
+        globalUserPosition!.longitude,
+        station.mapY,
+        station.mapX,
+      );
+      return dist.toStringAsFixed(1);
+    }
+    return station.distance.toString();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1206,7 +1263,7 @@ class StationCard extends StatelessWidget {
                             const SizedBox(width: 4),
                             // Use a higher opacity/darker color for better visibility
                             Text(
-                                '${station.location} • ${station.distance}km',
+                                '${station.location} • ${_getDistanceText(station)}km',
                                 style: TextStyle(
                                     color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8), // Darker/Clearer text
                                     fontSize: 13
@@ -1865,17 +1922,53 @@ class _MapViewScreenState extends State<MapViewScreen> {
       return;
     }
 
-    // Start Continuous Stream
+    // Get initial position first
+    // Get initial position first (with timeout for emulator)
+    try {
+      Position initialPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
+      if (mounted) {
+        setState(() {
+          _currentPosition = initialPosition;
+          globalUserPosition = initialPosition;
+        });
+      }
+    } catch (e) {
+      print('Error getting initial position: $e');
+      // Fallback to Manipal coordinates for emulator testing
+      if (mounted) {
+        setState(() {
+          _currentPosition = Position(
+            latitude: 13.3523,
+            longitude: 74.7927,
+            timestamp: DateTime.now(),
+            accuracy: 0,
+            altitude: 0,
+            altitudeAccuracy: 0,
+            heading: 0,
+            headingAccuracy: 0,
+            speed: 0,
+            speedAccuracy: 0,
+          );
+          globalUserPosition = _currentPosition;
+        });
+      }
+    }
+
+    // Then start continuous stream for updates
     const LocationSettings locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // Update every 5 meters
+      distanceFilter: 5,
     );
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings)
         .listen((Position position) {
-      if(mounted) {
+      if (mounted) {
         setState(() {
           _currentPosition = position;
+          globalUserPosition = position;
         });
       }
     });
@@ -5200,6 +5293,34 @@ class _AdminStationsTabState extends State<AdminStationsTab> {
   final MapController _mapController = MapController();
   final LatLng _manipalCenter = const LatLng(13.350, 74.790);
 
+  Position? _adminPosition;
+
+  @override
+  void initState() {
+    super.initState();
+    _initAdminLocation();
+  }
+
+  Future<void> _initAdminLocation() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      if (mounted) {
+        setState(() => _adminPosition = position);
+      }
+    } catch (e) {
+      print('Admin GPS error: $e');
+    }
+  }
+
   List<Station> get _filteredStations {
     if (_searchQuery.isEmpty) return mockStations;
     return mockStations.where((s) =>
@@ -5709,7 +5830,17 @@ class _AdminStationsTabState extends State<AdminStationsTab> {
                 mini: false,
                 backgroundColor: Colors.white,
                 onPressed: () {
-                  _mapController.move(_manipalCenter, 14.0);
+                  if (_adminPosition != null) {
+                    _mapController.move(
+                      LatLng(_adminPosition!.latitude, _adminPosition!.longitude),
+                      17.0,
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Waiting for GPS signal...')),
+                    );
+                    _mapController.move(_manipalCenter, 14.0);
+                  }
                 },
                 child: const Icon(Icons.my_location, color: Colors.black87),
               ),
